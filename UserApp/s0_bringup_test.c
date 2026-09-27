@@ -23,6 +23,10 @@ void StartApp_Daemon_Task(void const *argument)
 
     for (;;)
     {
+        /* 存活证据：LED1 1Hz 翻转。灯闪 = 调度器与任务链路正常，
+         * 此时串口仍无输出即可锁定硬件/引脚问题 */
+        HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
+
         printf("[S0] heartbeat #%lu, t=%lu ms\r\n",
                (unsigned long)++beat, (unsigned long)Bsp_GetMs());
 

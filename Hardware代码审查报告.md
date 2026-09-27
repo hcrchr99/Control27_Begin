@@ -167,8 +167,15 @@ P1-5（SPI2 去留）：SPI2 已按新规划成为 nRF24L01 遥控的正选外�
 |---|---|
 | N1 SPI2 超速 | ✅ 已修：BaudRatePrescaler = `_8` → 36/8 = 4.5 Mbit/s（nRF24 上限 10 MHz 内） |
 | N2 nRF24_IRQ EXTI | ✅ 已修：EXTI9_5_IRQn 使能（优先级 5），`EXTI9_5_IRQHandler` 已生成并调用 `HAL_GPIO_EXTI_IRQHandler(nRF24_IRQ_Pin)` |
-| N3 按键 EXTI | ⚠️ **修了一半**：PA11/PA12 已加内部上拉（PULLUP），但 `EXTI15_10_IRQn` 仍未在 NVIC 使能（ioc 与 it.c 中均为 0 处），中断依旧不会触发。CubeMX → NVIC 勾选 **EXTI line[15:10] interrupts**（优先级 5）即可；若按键改走任务轮询，则把两脚改回普通输入模式 |
+| N3 按键 EXTI | ✅ 已修（复查三确认）：EXTI15_10_IRQn 已使能，KEY1/KEY2 handler 已生成，内部上拉已加 |
 | N4 CSN 初始电平 | ✅ 已修：PC12 设了 PinState=SET，`HAL_GPIO_WritePin(nRF24_CSN, GPIO_PIN_SET)`，且已从 RESET 组移出 |
 | N5 Daemon 栈 | ✅ 已修：128 → 768 words |
+
+### 复查三（2026-09-27 15:36，UART4 去DMA + N3 收尾）
+
+- **N3 关闭** ✅：`EXTI15_10_IRQHandler` 已生成（KEY1/KEY2），NVIC 已使能。
+- **设计变更**：调试口 UART4 不再使用 DMA（用户决策）。核实结果：ioc 中 DMA 请求仅剩 ADC1（DMA1_Ch1），`usart.c` 无 `hdma_uart4` 残留，DMA2_Ch3 中断已移除，`MX_DMA_Init` 仍在 `MX_ADC1_Init` 之前 ✅。变更合理——调试口无协议帧，IDLE 判帧属 HC-05 遗留需求；附带收益是 DMA2 控制器整体闲置、少一个中断源。
+- **对 BSP 的约束**：`bsp_log` 不得使用阻塞的 `HAL_UART_Transmit`，日志走 `HAL_UART_Transmit_IT` + 环形缓冲（115200 波特率下 CPU 开销可接受）；接收同样 IT 单字节入环形缓冲。
+- 文档已同步：README、资料库《RM校内赛开发规划》《RM校内赛代码分层架构》均已加入勘误说明。
 
 两处 USER CODE 补丁（`tim.c` NOJTAG、`main.c` DisableIRQ(DMA1_Ch1)）重新生成后仍在 ✅。**至此硬件层（CubeMX 生成部分）已无阻断项，可进入 Bsp 层开发。**

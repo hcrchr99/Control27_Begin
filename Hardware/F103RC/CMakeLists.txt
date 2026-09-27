@@ -43,13 +43,26 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 )
 
 # Add sources to executable
+# 分层代码位于 CubeMX 工程之外(与 Hardware 同级), 对齐 control-2026 结构:
+#   RM_Begin/Bsp  RM_Begin/Modules  RM_Begin/UserApp
+# 用 CMAKE_CURRENT_LIST_DIR 定位(而非 CMAKE_SOURCE_DIR), 从仓库根或 F103RC
+# 单独配置均正确; GLOB_RECURSE 自动收集子目录, 新增 .c 文件无需改本文件
+file(GLOB_RECURSE BSP_SOURCES    CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/../../Bsp/*.c")
+file(GLOB_RECURSE MODULE_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/../../Modules/*.c")
+file(GLOB_RECURSE USERAPP_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/../../UserApp/*.c")
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
+    ${BSP_SOURCES}
+    ${MODULE_SOURCES}
+    ${USERAPP_SOURCES}
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
+    "${CMAKE_CURRENT_LIST_DIR}/../../Bsp"
+    "${CMAKE_CURRENT_LIST_DIR}/../../Modules"
+    "${CMAKE_CURRENT_LIST_DIR}/../../UserApp"
 )
 
 # Add project symbols (macros)

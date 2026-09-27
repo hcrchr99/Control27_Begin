@@ -113,7 +113,10 @@
 
 /* ================================== 串口 ================================== */
 
-/* 调试日志口 UART4（PC10/PC11，115200，纯中断收发，无 DMA） */
-#define PIN_LOG_UART            UART4
+/* 调试日志口 UART4（PC10/PC11，115200，纯中断收发，无 DMA）。
+ * ⚠ 注意：CubeMX 句柄是 huart4（extern 自 usart.h）。
+ * CMSIS 的 `UART4` 宏是外设寄存器块指针（USART_TypeDef*），与句柄是两回事，
+ * 严禁强转后当句柄传给 HAL——同理 TIM4/ADC1/SPI2 等实例宏都只是寄存器块，
+ * HAL 句柄一律用 htim4/hadc1/hspi2（各外设头文件里 extern）。 */
 
 #endif /* F103RC_BSP_PIN_H */

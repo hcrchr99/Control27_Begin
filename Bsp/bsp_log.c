@@ -4,6 +4,7 @@
  */
 #include "bsp_log.h"
 #include "bsp_pin.h"
+#include "usart.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -35,7 +36,7 @@ static uint32_t log_tx_drop_cnt;
 
 static uint16_t ring_count(uint16_t size, volatile uint16_t head, volatile uint16_t tail)
 {
-    return (uint16_t)((head - tail) % size);
+    return (uint16_t)((head - tail + size) % size);
 }
 
 /* PRIMASK 保存/恢复，保证在关中断调用者内也可安全嵌套 */
@@ -53,6 +54,8 @@ static void log_unlock(uint32_t primask)
         __enable_irq();
     }
 }
+
+/* primask 记录是否有别处屏蔽了中断，只有在lock前没有人屏蔽中断才允许重新开启中断 */
 
 /* 把 TX 环形缓冲弹出一个线性块交给 UART，须在关中断（或 ISR）内调用 */
 static void log_tx_kick_locked(void)
@@ -76,7 +79,11 @@ static void log_tx_kick_locked(void)
         log_tx_tail = (uint16_t)((log_tx_tail + 1u) % LOG_TX_SIZE);
     }
     log_tx_busy = 1u;
-    (void)HAL_UART_Transmit_IT((UART_HandleTypeDef *)PIN_LOG_UART, log_tx_chunk, cnt);
+    /* 发起失败时回滚 busy，否则没有 TxCplt 来清标志，发送链会永久卡死 */
+    if (HAL_UART_Transmit_IT(&huart4, log_tx_chunk, cnt) != HAL_OK)
+    {
+        log_tx_busy = 0u;
+    }
 }
 
 /* 压入 TX 环形缓冲，满则丢弃本次剩余字节并计数 */
@@ -109,7 +116,7 @@ void Log_Init(void)
     log_tx_drop_cnt = 0u;
 
     /* 启动 RX 单字节中断链；UART4 的 MspInit 已使能 NVIC(优先级 5,0) */
-    (void)HAL_UART_Receive_IT((UART_HandleTypeDef *)PIN_LOG_UART, &log_rx_byte, 1u);
+    (void)HAL_UART_Receive_IT(&huart4, &log_rx_byte, 1u);
 }
 
 void Log_Printf(const char *fmt, ...)
@@ -118,16 +125,16 @@ void Log_Printf(const char *fmt, ...)
     va_list ap;
 
     va_start(ap, fmt);
-    int n = vsnprintf(line, sizeof(line), fmt, ap);
+    int n = vsnprintf(line, LOG_FMT_SIZE, fmt, ap);
     va_end(ap);
 
     if (n <= 0)
     {
         return;
     }
-    if ((uint32_t)n >= sizeof(line))
+    if ((uint32_t)n >= LOG_FMT_SIZE)
     {
-        n = (int)sizeof(line) - 1;  /* vsnprintf 截断时返回的是"应有长度"，需钳制 */
+        n = LOG_FMT_SIZE - 1;  /* vsnprintf 截断时返回的是"应有长度"，需钳制 */
     }
     log_tx_push((const uint8_t *)line, (uint16_t)n);
 }
@@ -178,12 +185,11 @@ __attribute__((used)) int fputc(int ch, FILE *f)
 
 /* ============================ HAL 回调（全局唯一） ========================= */
 
-/* 全仓库回调占用情况（2026-09-27 核对）：UART 回调仅本文件定义；
- * HAL_TIM_PeriodElapsedCallback 已被 main.c 占用（TIM6 时基），勿在此重定义。 */
+/* 全仓库回调占用情况（2026-09-27 核对）：UART 回调仅本文件定义 */
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance == PIN_LOG_UART)
+    if (huart->Instance == UART4)
     {
         log_tx_busy = 0u;
         log_tx_kick_locked();   /* ISR 上下文，本身就在"关中断"语义内 */
@@ -192,7 +198,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance == PIN_LOG_UART)
+    if (huart->Instance == UART4)
     {
         log_rx_buf[log_rx_head] = log_rx_byte;
         log_rx_head = (uint16_t)((log_rx_head + 1u) % LOG_RX_SIZE);
@@ -202,7 +208,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance == PIN_LOG_UART)
+    if (huart->Instance == UART4)
     {
         /* F1 HAL 语义（stm32f1xx_hal_uart.c IRQHandler）：ORE 为阻断错误，
          * 已先 EndRxTransfer（RxState=READY）再进本回调；NE/FE 不中止传输。

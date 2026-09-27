@@ -1,0 +1,17 @@
+# Build outputs
+build/
+cmake-build-debug/
+Debug/
+Release/
+
+# IDE
+.idea/
+.vscode/
+*.user
+
+# WorkBuddy project data (local)
+.workbuddy/
+
+# CubeMX backups
+*.bak
+*~

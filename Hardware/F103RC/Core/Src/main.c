@@ -29,7 +29,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "bsp_sys.h"
+#include "bsp_log.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -112,6 +113,9 @@ int main(void)
    * CubeMX在双同步模式下强制使能DMA1_Channel1中断(界面置灰不可关),
    * 在此显式屏蔽, 避免循环模式下半满/全满中断频繁打断RTOS任务. */
   HAL_NVIC_DisableIRQ(DMA1_Channel1_IRQn);
+  /* S0: BSP 初始化（时钟自检 + DWT）与日志口启动（UART4 已在上面 MX 初始化） */
+  Bsp_Init();
+  Log_Init();
   /* USER CODE END 2 */
 
   /* Call init function for freertos objects (in cmsis_os2.c) */

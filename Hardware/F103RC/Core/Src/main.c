@@ -31,6 +31,7 @@
 /* USER CODE BEGIN Includes */
 #include "bsp_sys.h"
 #include "bsp_log.h"
+#include "bsp_encoder.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -116,6 +117,8 @@ int main(void)
   /* S0: BSP 初始化（时钟自检 + DWT）与日志口启动（UART4 已在上面 MX 初始化） */
   Bsp_Init();
   Log_Init();
+  /* S3: 启动四路编码器计数（MX_TIMx_Init 的编码器配置已在上面完成） */
+  Encoder_InitAll();
   /* USER CODE END 2 */
 
   /* Call init function for freertos objects (in cmsis_os2.c) */

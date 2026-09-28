@@ -14,35 +14,48 @@
 
 #include "main.h"
 
+/* 引脚标识对象：BSP/Modules 接口统一用它传脚，值传递，构造用下方 PIN_xxx 宏 */
+typedef struct
+{
+    GPIO_TypeDef *port;
+    uint16_t      pin;
+} GpioPin_t;
+
 /* ================================ 数字输出 ================================ */
 
 /* LED1（PB12） */
 #define PIN_LED1_GPIO_PORT      LED1_GPIO_Port
 #define PIN_LED1_GPIO_PIN       LED1_Pin
+#define PIN_LED1                ((GpioPin_t){ PIN_LED1_GPIO_PORT, PIN_LED1_GPIO_PIN })
 
 /* LED2（PC13，驱动能力仅 ~3mA，限流电阻 >=1k，低电平点亮，禁止挪作他用） */
 #define PIN_LED2_GPIO_PORT      LED2_GPIO_Port
 #define PIN_LED2_GPIO_PIN       LED2_Pin
+#define PIN_LED2                ((GpioPin_t){ PIN_LED2_GPIO_PORT, PIN_LED2_GPIO_PIN })
 
 /* 蜂鸣器（PC4） */
 #define PIN_ALARM_GPIO_PORT     Alarm_GPIO_Port
 #define PIN_ALARM_GPIO_PIN      Alarm_Pin
+#define PIN_ALARM               ((GpioPin_t){ PIN_ALARM_GPIO_PORT, PIN_ALARM_GPIO_PIN })
 
 /* 功率级待机控制（PA10，TB6612 STBY；CubeMX 复位电平 = 低 = 关断） */
 #define PIN_PWR_STBY_GPIO_PORT  STBY_GPIO_Port
 #define PIN_PWR_STBY_GPIO_PIN   STBY_Pin
+#define PIN_PWR_STBY            ((GpioPin_t){ PIN_PWR_STBY_GPIO_PORT, PIN_PWR_STBY_GPIO_PIN })
 
-/* 方向 GPIO ×8（PB0/PB1/PB4/PB5/PC0/PC1/PC8/PC9）
+/* 方向 GPIO ×8（PB0/PB1/PA6/PA7/PC0/PC1/PC8/PC9）
  * 每 2 个一组：xA=xIN1, xB=xIN2；组序号与电机序号的对应关系
- * 由硬件按布线最终决定（README 备注序号未定，勿在 BSP 固化映射）。 */
+ * 由硬件按布线最终决定（README 备注序号未定，勿在 BSP 固化映射）。
+ * 2026-09-28 变更：原 PB4/PB5 组让位给编码器3（TIM3 部分重映射），
+ * 方向组迁至 PA6/PA7。 */
 #define PIN_DIR1A_GPIO_PORT     GPIOB
 #define PIN_DIR1A_GPIO_PIN      GPIO_PIN_0
 #define PIN_DIR1B_GPIO_PORT     GPIOB
 #define PIN_DIR1B_GPIO_PIN      GPIO_PIN_1
-#define PIN_DIR2A_GPIO_PORT     GPIOB
-#define PIN_DIR2A_GPIO_PIN      GPIO_PIN_4
-#define PIN_DIR2B_GPIO_PORT     GPIOB
-#define PIN_DIR2B_GPIO_PIN      GPIO_PIN_5
+#define PIN_DIR2A_GPIO_PORT     GPIOA
+#define PIN_DIR2A_GPIO_PIN      GPIO_PIN_6
+#define PIN_DIR2B_GPIO_PORT     GPIOA
+#define PIN_DIR2B_GPIO_PIN      GPIO_PIN_7
 #define PIN_DIR3A_GPIO_PORT     GPIOC
 #define PIN_DIR3A_GPIO_PIN      GPIO_PIN_0
 #define PIN_DIR3B_GPIO_PORT     GPIOC
@@ -52,25 +65,39 @@
 #define PIN_DIR4B_GPIO_PORT     GPIOC
 #define PIN_DIR4B_GPIO_PIN      GPIO_PIN_9
 
+#define PIN_DIR1A               ((GpioPin_t){ PIN_DIR1A_GPIO_PORT, PIN_DIR1A_GPIO_PIN })
+#define PIN_DIR1B               ((GpioPin_t){ PIN_DIR1B_GPIO_PORT, PIN_DIR1B_GPIO_PIN })
+#define PIN_DIR2A               ((GpioPin_t){ PIN_DIR2A_GPIO_PORT, PIN_DIR2A_GPIO_PIN })
+#define PIN_DIR2B               ((GpioPin_t){ PIN_DIR2B_GPIO_PORT, PIN_DIR2B_GPIO_PIN })
+#define PIN_DIR3A               ((GpioPin_t){ PIN_DIR3A_GPIO_PORT, PIN_DIR3A_GPIO_PIN })
+#define PIN_DIR3B               ((GpioPin_t){ PIN_DIR3B_GPIO_PORT, PIN_DIR3B_GPIO_PIN })
+#define PIN_DIR4A               ((GpioPin_t){ PIN_DIR4A_GPIO_PORT, PIN_DIR4A_GPIO_PIN })
+#define PIN_DIR4B               ((GpioPin_t){ PIN_DIR4B_GPIO_PORT, PIN_DIR4B_GPIO_PIN })
+
 /* ================================ 数字输入 ================================ */
 
 /* 按键 1/2（PA11/PA12，下降沿 EXTI，内部上拉） */
 #define PIN_KEY1_GPIO_PORT      KEY1_GPIO_Port
 #define PIN_KEY1_GPIO_PIN       KEY1_Pin
 #define PIN_KEY1_EXTI_IRQn      KEY1_EXTI_IRQn
+#define PIN_KEY1                ((GpioPin_t){ PIN_KEY1_GPIO_PORT, PIN_KEY1_GPIO_PIN })
 
 #define PIN_KEY2_GPIO_PORT      KEY2_GPIO_Port
 #define PIN_KEY2_GPIO_PIN       KEY2_Pin
 #define PIN_KEY2_EXTI_IRQn      KEY2_EXTI_IRQn
+#define PIN_KEY2                ((GpioPin_t){ PIN_KEY2_GPIO_PORT, PIN_KEY2_GPIO_PIN })
 
 /* 无线模块控制脚（CSN=PC12 空闲必须为高；CE=PD2；IRQ=PC5 下降沿 EXTI） */
 #define PIN_WL_CSN_GPIO_PORT    nRF24_CSN_GPIO_Port
 #define PIN_WL_CSN_GPIO_PIN     nRF24_CSN_Pin
+#define PIN_WL_CSN              ((GpioPin_t){ PIN_WL_CSN_GPIO_PORT, PIN_WL_CSN_GPIO_PIN })
 #define PIN_WL_CE_GPIO_PORT     nRF24_CE_GPIO_Port
 #define PIN_WL_CE_GPIO_PIN      nRF24_CE_Pin
+#define PIN_WL_CE               ((GpioPin_t){ PIN_WL_CE_GPIO_PORT, PIN_WL_CE_GPIO_PIN })
 #define PIN_WL_IRQ_GPIO_PORT    nRF24_IRQ_GPIO_Port
 #define PIN_WL_IRQ_GPIO_PIN     nRF24_IRQ_Pin
 #define PIN_WL_IRQ_EXTI_IRQn    nRF24_IRQ_EXTI_IRQn
+#define PIN_WL_IRQ              ((GpioPin_t){ PIN_WL_IRQ_GPIO_PORT, PIN_WL_IRQ_GPIO_PIN })
 
 /* ================================= PWM 输出 ================================ */
 
@@ -93,11 +120,41 @@
 
 /* ================================ 编码器输入 =============================== */
 
-/* TI12 四倍频，IC Filter = 5；BSP 只出原始增量，换算系数在 robot_config.h */
+/* TI12 四倍频，IC Filter = 5；BSP 只出原始增量，换算系数在 robot_config.h
+ * ⚠ ENC2/ENC3 均走重映射，其 MspInit 的 remap 宏会改写 SWJ_CFG，
+ * 两处 USER CODE 段的 __HAL_AFIO_REMAP_SWJ_NOJTAG() 防御必须保留。 */
 #define PIN_ENC1_TIM            TIM1    /* PA8/PA9  */
 #define PIN_ENC2_TIM            TIM2    /* PA15/PB3（部分重映射1，已禁 JTAG） */
-#define PIN_ENC3_TIM            TIM3    /* PA6/PA7  */
+#define PIN_ENC3_TIM            TIM3    /* PB4/PB5（部分重映射，2026-09-28 由 PA6/PA7 迁入） */
 #define PIN_ENC4_TIM            TIM8    /* PC6/PC7  */
+
+/* 编码器输入引脚对象宏（Gpio_Read 读原始电平，诊断信号通断用；
+ * 注意 ENC3 实际引脚是重映射后的 PB4/PB5） */
+#define PIN_ENC1A_GPIO_PORT     GPIOA
+#define PIN_ENC1A_GPIO_PIN      GPIO_PIN_8
+#define PIN_ENC1B_GPIO_PORT     GPIOA
+#define PIN_ENC1B_GPIO_PIN      GPIO_PIN_9
+#define PIN_ENC2A_GPIO_PORT     GPIOA
+#define PIN_ENC2A_GPIO_PIN      GPIO_PIN_15
+#define PIN_ENC2B_GPIO_PORT     GPIOB
+#define PIN_ENC2B_GPIO_PIN      GPIO_PIN_3
+#define PIN_ENC3A_GPIO_PORT     GPIOB
+#define PIN_ENC3A_GPIO_PIN      GPIO_PIN_4
+#define PIN_ENC3B_GPIO_PORT     GPIOB
+#define PIN_ENC3B_GPIO_PIN      GPIO_PIN_5
+#define PIN_ENC4A_GPIO_PORT     GPIOC
+#define PIN_ENC4A_GPIO_PIN      GPIO_PIN_6
+#define PIN_ENC4B_GPIO_PORT     GPIOC
+#define PIN_ENC4B_GPIO_PIN      GPIO_PIN_7
+
+#define PIN_ENC1A               ((GpioPin_t){ PIN_ENC1A_GPIO_PORT, PIN_ENC1A_GPIO_PIN })
+#define PIN_ENC1B               ((GpioPin_t){ PIN_ENC1B_GPIO_PORT, PIN_ENC1B_GPIO_PIN })
+#define PIN_ENC2A               ((GpioPin_t){ PIN_ENC2A_GPIO_PORT, PIN_ENC2A_GPIO_PIN })
+#define PIN_ENC2B               ((GpioPin_t){ PIN_ENC2B_GPIO_PORT, PIN_ENC2B_GPIO_PIN })
+#define PIN_ENC3A               ((GpioPin_t){ PIN_ENC3A_GPIO_PORT, PIN_ENC3A_GPIO_PIN })
+#define PIN_ENC3B               ((GpioPin_t){ PIN_ENC3B_GPIO_PORT, PIN_ENC3B_GPIO_PIN })
+#define PIN_ENC4A               ((GpioPin_t){ PIN_ENC4A_GPIO_PORT, PIN_ENC4A_GPIO_PIN })
+#define PIN_ENC4B               ((GpioPin_t){ PIN_ENC4B_GPIO_PORT, PIN_ENC4B_GPIO_PIN })
 
 /* ================================ ADC 采样 ================================ */
 

@@ -30,12 +30,31 @@
 #define ROBOT_SERVO_PULSE_MIN_US    500
 #define ROBOT_SERVO_PULSE_MAX_US    2500
 
+/* ================================== SPI =================================== */
+
+/* 单次字节级传输超时（HAL_SPI_TransmitReceive 参数）。SPI2 实际 4.5MHz，
+ * 15B 一帧总线时间 <100us，10ms 超时余量充足 —— 待实测 */
+#define ROBOT_SPI_TIMEOUT_MS        10
+
 /* ================================ Remote ================================= */
 
-/* 无线链路单包载荷（字节），W1 验收目标 15B */
+/* 无线链路单包载荷（字节），W1 验收目标 15B。收发两端必须一致 */
 #define ROBOT_REMOTE_PAYLOAD        15
 /* 链路看门狗超时：300~500ms，收不到包判定失联 —— 待联调定型 */
 #define ROBOT_REMOTE_WATCHDOG_MS    400
+/* PRX 帧队列深度：IRQ 搬运后待上层消费的帧数，满则丢最旧 */
+#define ROBOT_REMOTE_RX_QUEUE       4
+/* PTX 单包发送等待 IRQ 的兜底超时：自动重传最坏 10次×3.75ms=37.5ms，上取 50 */
+#define ROBOT_REMOTE_TX_TIMEOUT_MS  50
+
+/* ---- nRF24 RF 参数（经 Nrf24_Config_t 下发，全部待双板联调定型） ---- */
+#define ROBOT_RF_CHANNEL            40      /* 2.440GHz，联调遇干扰可改 */
+#define ROBOT_RF_DATA_RATE          1       /* 1=1Mbps（距离优先），0=2Mbps */
+#define ROBOT_RF_TX_POWER           3       /* RF_PWR 3 = 0dBm */
+#define ROBOT_RF_ADDR_WIDTH         5       /* 字节，3~5 */
+#define ROBOT_RF_ADDR_BYTES         {0x32, 0x4E, 0x61, 0x6E, 0x6F}  /* 占位地址，两端一致 */
+#define ROBOT_RF_RETR_DELAY         15      /* ×250us = 3.75ms（>15B@1Mbps 包时长） */
+#define ROBOT_RF_RETR_COUNT         10      /* 自动重传上限 */
 
 /* ================================ Power ================================== */
 

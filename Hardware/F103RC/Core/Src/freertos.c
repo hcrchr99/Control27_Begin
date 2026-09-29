@@ -110,7 +110,7 @@ void MX_FREERTOS_Init(void) {
 
   /* Create the thread(s) */
   /* definition and creation of App_Remote_Task */
-  osThreadDef(App_Remote_Task, StartApp_Remote_Task, osPriorityHigh, 0, 256);
+  osThreadDef(App_Remote_Task, StartApp_Remote_Task, osPriorityHigh, 0, 512);
   App_Remote_TaskHandle = osThreadCreate(osThread(App_Remote_Task), NULL);
 
   /* definition and creation of App_ChassisTask */

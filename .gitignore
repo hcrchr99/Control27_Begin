@@ -15,3 +15,7 @@ Release/
 # CubeMX backups
 *.bak
 *~
+
+# Tool byproducts (local, regenerable)
+.zcode/
+Hardware/F103RC/CMakePresets.json

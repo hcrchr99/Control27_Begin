@@ -37,7 +37,7 @@
 | ADC3 | 扫描 IN12(PC2)/IN13(PC3)，55.5 周期采样 | ✅（IN13 缺失已修正） |
 | UART4 | 115200，纯中断收发，NVIC 已使能（优先级 5），无 DMA | ✅ 符合 09-27 勘误 |
 | UART5 | 未初始化（引脚让给 nRF24 CSN/CE） | ✅ |
-| SPI2 | 主模式 8bit，CPOL=0/CPHA=1EDGE，软件 NSS，分频 8 → **9 MHz** | ⚠ 见坑清单 #1 |
+| SPI2 | 主模式 8bit，CPOL=0/CPHA=1EDGE，软件 NSS，分频 8 → **4.5 MHz**（APB1 36MHz/8；v1.1 勘误 2026-09-29：原"9 MHz"误按 72MHz 主频计算，SPI2 挂 APB1） | ✅ |
 | I²C2 | 100 kHz 标准模式（OLED） | ✅ |
 | nRF24 引脚 | CSN=PC12 / CE=PD2 输出（CSN 默认拉高），IRQ=PC5 下降沿+上拉 EXTI | ✅ |
 | 按键 | PA11/PA12 下降沿+上拉 EXTI，EXTI15_10 NVIC 已使能 | ✅（此前中断未使能已修正） |
@@ -46,7 +46,7 @@
 | FreeRTOS | CMSIS_V1，堆 **20480 B**，tick 1kHz，5 任务栈：Remote 256 / Chassis 1024 / Grab 768 / Sense 256 / Daemon 768（word） | ✅（堆 5120 已扩容） |
 | DMA 资源 | 仅 DMA1_Ch1 服务 ADC1；DMA2 全空闲 | ✅ 与勘误一致 |
 
-**唯一遗留决策项**：SPI2 实际 9 MHz，高于规划 ≤8 MHz，但低于 nRF24L01+ 数据手册上限 10 MHz——先按 9 MHz 实测，通信不稳再在 CubeMX 改分频 16（4.5 MHz）。
+**遗留决策项（已关闭，2026-09-29 勘误）**：SPI2 实际时钟 = APB1 36MHz / 分频 8 = **4.5 MHz**（原记"9 MHz"系误按 72MHz 主频计算），远低于 nRF24L01+ 上限 10 MHz，无需调整 CubeMX 分频。另：bsp_spi 的 CSN/CE 电平封装已落地（`Spi_Csn/Spi_Ce`，内部委托 bsp_gpio），CSN/CE 时序知识仍归 Modules/remote。
 
 ## 三、目录结构与工程接入
 
@@ -174,7 +174,7 @@ W2 剩余时间（10/8~10/9）做 BSP+Modules 回归，交给 Modules 功能层�
 
 ## 七、坑清单（BSP 实施视角，按踩中概率排序）
 
-1. **SPI2 9 MHz**：nRF24L01+ 手册上限 10 MHz，9 MHz 理论可用；若读寄存器偶发错误，CubeMX 改分频 16 → 4.5 MHz（不手改生成代码）。
+1. **SPI2 时钟**：实际 4.5 MHz（APB1 36MHz/分频 8；v1.1 勘误 2026-09-29，原"9 MHz"算错总线），nRF24L01+ 手册上限 10 MHz，余量充足；若读寄存器仍偶发错误，CubeMX 改分频 16 → 2.25 MHz（不手改生成代码）。
 2. **UART4 无 DMA**：115200 下每 86.8µs 一次 RX 中断，ISR 只搬一个字节；`Log_Poll` 必须及时取，否则环形缓冲溢出丢日志（调试口可容忍）。
 3. **双 ADC 数据拆分**：DMA 缓冲是 32 位（ADC1|ADC2<<16），取错位功率就错；先验证已知分压读数。
 4. **ADC 首批样本无效**：DMA 循环启动后前几拍是旧值，`bsp_adc` 内部丢弃前 2 个窗口。

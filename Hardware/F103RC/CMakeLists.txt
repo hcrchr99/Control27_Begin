@@ -62,6 +62,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
     "${CMAKE_CURRENT_LIST_DIR}/../../Bsp"
     "${CMAKE_CURRENT_LIST_DIR}/../../Modules"
+    "${CMAKE_CURRENT_LIST_DIR}/../../Modules/remote"
     "${CMAKE_CURRENT_LIST_DIR}/../../UserApp"
 )
 

@@ -110,13 +110,14 @@ typedef struct
 #define PIN_PWM20K_ARR          3599u
 
 /* 50Hz PWM 组（TIM5 CH1-4，PSC=1439 ARR=999，1 step = 20us；
- * 用途：舵机脉宽控制，CH4 为备用通道） */
+ * 用途：舵机脉宽控制，CH4 已确认启用） */
 #define PIN_PWM50HZ_TIM         TIM5
 #define PIN_PWM50HZ_CH1         TIM_CHANNEL_1   /* PA0 */
 #define PIN_PWM50HZ_CH2         TIM_CHANNEL_2   /* PA1 */
 #define PIN_PWM50HZ_CH3         TIM_CHANNEL_3   /* PA2 */
 #define PIN_PWM50HZ_CH4         TIM_CHANNEL_4   /* PA3 */
 #define PIN_PWM50HZ_ARR         999u
+#define PIN_PWM50HZ_US_PER_STEP 20u     /* 20ms 周期 / (ARR+1)=1000 步 */
 
 /* ================================ 编码器输入 =============================== */
 

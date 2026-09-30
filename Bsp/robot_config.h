@@ -81,7 +81,7 @@
 
 /* 板级测试台选择（取值见 Tests/test_bench.h 枚举）：0=关闭（业务固件常态，
  * 测试任务只打心跳+栈高水位）；新板 bring-up 时按依赖序逐项改选：
- * 1=GPIO(S1) 2=ENCODER(S3) 3=SPI(S2)。激活时业务任务自动让位。 */
+ * 1=GPIO(S1) 2=ENCODER(S3) 3=SPI(S2) 4=PWM(S4) 5=REMOTE(S2 链路收发)。激活时业务任务自动让位。 */
 #define ROBOT_TEST_BENCH            0
 
 #endif /* F103RC_ROBOT_CONFIG_H */

@@ -103,4 +103,5 @@ cmake --build Hardware/F103RC/build/Debug
 1. **USER CODE 补丁**：`main.c` USER CODE 2 的 `HAL_NVIC_DisableIRQ(DMA1_Channel1_IRQn)`（方案 B 不用 DMA 中断）与 `tim.c` TIM2_MspInit 的 `__HAL_AFIO_REMAP_SWJ_NOJTAG()`（防 SWJ_CFG 被重映射宏改写）必须保留在 USER CODE 段内，重新生成代码不会覆盖。
 2. **TIM2 重映射**：PA15/PB3 占用 JTAG 引脚，工程已禁用 JTAG 仅保留 SWD；HAL 的 `AFIO_REMAP_PARTIAL` 宏会将写只读的 SWJ_CFG 写成非法值 0b111（据 ST 社区称新版固件已解决，代码中已做防御性恢复）。
 3. 详细审查记录见 `Hardware代码审查报告.md`，ADC 配置步骤见 `ADC方案B配置指南.md`。
-4. 器件一定要共地，**一定要共地！！！！！！！！！！**
+4. **Tests/ 板级测试台**：各阶段验收程序常驻主干，选项目改 `Bsp/robot_config.h` 的 `ROBOT_TEST_BENCH`；新增测试项、编号规则与业务任务互斥契约见 `docs/BSP层开发规划.md` 第十节，**写驱动前必读**。
+5. 器件一定要共地，**一定要共地！！！！！！！！！！**

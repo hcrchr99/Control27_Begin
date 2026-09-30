@@ -24,6 +24,8 @@ typedef enum
     TEST_BENCH_GPIO,        /* S1：按键 EXTI → LED1/蜂鸣器 */
     TEST_BENCH_ENCODER,     /* S3：四路编码器手转（增量/累计） */
     TEST_BENCH_SPI,         /* S2：SPI 通路（nRF24 STATUS/RF_CH 回写回读） */
+    TEST_BENCH_PWM,         /* S4：TIM4 20kHz duty 阶梯 / TIM5 50Hz 脉宽阶梯 */
+    TEST_BENCH_REMOTE,      /* S2：无线链路收发体检 + 收包统计 */
 } TestBenchId_t;
 
 /**

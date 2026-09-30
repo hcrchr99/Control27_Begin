@@ -28,11 +28,17 @@ void Test_Encoder_Init(void);
 void Test_Encoder_Poll(void);
 void Test_Spi_Init(void);
 void Test_Spi_Poll(void);
+void Test_Pwm_Init(void);
+void Test_Pwm_Poll(void);
+void Test_Remote_Init(void);
+void Test_Remote_Poll(void);
 
 static const TestEntry_t s_table[] = {
     { TEST_BENCH_GPIO,    "gpio",    Test_Gpio_Init,    Test_Gpio_Poll    },
     { TEST_BENCH_ENCODER, "encoder", Test_Encoder_Init, Test_Encoder_Poll },
     { TEST_BENCH_SPI,     "spi",     Test_Spi_Init,     Test_Spi_Poll     },
+    { TEST_BENCH_PWM,     "pwm",     Test_Pwm_Init,     Test_Pwm_Poll     },
+    { TEST_BENCH_REMOTE,  "remote",  Test_Remote_Init,  Test_Remote_Poll  },
 };
 
 bool TestBench_Active(void)

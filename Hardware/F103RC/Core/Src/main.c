@@ -32,6 +32,7 @@
 #include "bsp_sys.h"
 #include "bsp_log.h"
 #include "bsp_encoder.h"
+#include "bsp_pwm.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -119,6 +120,8 @@ int main(void)
   Log_Init();
   /* S3: 启动四路编码器计数（MX_TIMx_Init 的编码器配置已在上面完成） */
   Encoder_InitAll();
+  /* S4: 启动 8 路 PWM 输出（compare 保持 CubeMX Pulse=0：duty 0 / 不发脉冲） */
+  Pwm_InitAll();
   /* USER CODE END 2 */
 
   /* Call init function for freertos objects (in cmsis_os2.c) */

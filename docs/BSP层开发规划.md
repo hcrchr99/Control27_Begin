@@ -1,9 +1,11 @@
-# 《机甲夺矿》BSP 层开发规划 v1.1
+# 《机甲夺矿》BSP 层开发规划 v1.2
 
 > 上游文档：《RM校内赛开发规划》v1.0（2026-09-27 遥控链路已变更为 nRF24L01/SPI2）。
 > 本文档基线：Hardware/F103RC CubeMX 生成代码（CMake 工具链，2026-09-27 复核通过）。
 > **v1.1 修订（2026-09-27）**：BSP 只封装**片上外设**（PWM/编码器/ADC/UART/SPI/I²C/GPIO/EXTI/DWT）；
 > Motor/Servo/Power/OLED/Remote 等含"器件知识"的封装全部移入 Modules（对齐 control-2026 分层）。
+> **v1.2 修订（2026-09-30）**：新增第十节《Tests/ 板级测试台规范》——验收即测试项、常驻主干；
+> SPI2 频率勘误（4.5MHz）；bsp_pwm API 更新（duty 0.0~1.0f、TIM5×4）。
 
 ## 一、BSP 层定位与边界
 
@@ -59,7 +61,7 @@ RM_Begin/                     ← 仓库根（git 仓库根目录）
 │   ├── bsp_sys.c/.h          # DWT 微秒延时、毫秒时间戳、时钟自检
 │   ├── bsp_log.c/.h          # UART4 IT 环形缓冲日志 + printf 重定向
 │   ├── bsp_gpio.c/.h         # GPIO 读写 + EXTI 注册（LED/蜂鸣器/按键/nRF24 CSN·CE 底层）
-│   ├── bsp_pwm.c/.h          # TIM4×4 20kHz duty / TIM5×3 50Hz 脉宽，统一接口
+│   ├── bsp_pwm.c/.h          # TIM4×4 20kHz duty / TIM5×4 50Hz 脉宽，统一接口
 │   ├── bsp_encoder.c/.h      # TIM1/2/3/8 编码器
 │   ├── bsp_adc.c/.h          # ADC1/2 DMA 循环缓冲 + ADC3 扫描轮询
 │   ├── bsp_spi.c/.h          # SPI2 全双工字节收发
@@ -70,7 +72,8 @@ RM_Begin/                     ← 仓库根（git 仓库根目录）
 │   ├── power.c/.h            # ADC 原始值→电压/电流/功率换算（窗口均值）
 │   ├── oled.c/.h             # SSD1306 器件驱动 + 排版刷新
 │   └── remote/               # nRF24L01 寄存器驱动 + 链路协议（W1 关键路径）
-├── UserApp/                  # 应用任务层（二期规划）
+├── UserApp/                  # 应用任务层（remote_task.c 已随 W1 落地，其余二期）
+├── Tests/                    # 板级测试台（验收即测试项，常驻主干；规范见第十节）
 └── Hardware/
     └── F103RC/               # CubeMX 工程 = CMake 工程根（Core/Drivers/Middlewares 不动）
 ```
@@ -114,7 +117,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -T \"${CMAKE_CURRENT_LIST_
 | bsp_sys | DWT、时钟 | `Bsp_Init` / `Bsp_GetUs` / `Bsp_GetMs` / `Bsp_DelayUs` | 全局 |
 | bsp_log | UART4 IT + 环形缓冲 | `Log_Init` / `Log_Printf(fmt,...)` / `Log_Poll` | 调试全局 |
 | bsp_gpio | GPIO 读写 + EXTI 注册 | `Gpio_Write(pin,on)` / `Gpio_Read(pin)` / `Exti_Attach(line,cb)` | Modules 各器件 |
-| bsp_pwm | TIM4 CH1-4（20kHz）、TIM5 CH1-3（50Hz） | `Pwm_SetDuty(ch,-1000..+1000)` / `Pwm_SetPulseUs(ch,us)` / `Pwm_Release(ch)` | Modules: motor/servo |
+| bsp_pwm | TIM4 CH1-4（20kHz）、TIM5 CH1-4（50Hz） | `Pwm_SetDuty(ch, 0.0f..1.0f)`（<0 钳 0，按各通道所属 TIM 的 ARR 查表换算）/ `Pwm_SetPulseUs(ch,us)`（仅 50Hz 组，BSP 钳 0..20000us）/ `Pwm_Release(ch)` | Modules: motor/servo |
 | bsp_encoder | TIM1/2/3/8 | `Encoder_InitAll` / `Encoder_Read(ch)→int32 增量`（内部累计 16bit 溢出） | Modules: chassis |
 | bsp_adc | ADC1/2 DMA 循环 + ADC3 扫描 | `Adc_GetLatest(&vi)`（V/I 成对）/ `Adc3_Read(ch)` | Modules: power |
 | bsp_spi | SPI2 全双工 | `Spi_Transfer(tx,rx,len)` / `Spi_Csn(on)` / `Spi_Ce(on)` | Modules: remote |
@@ -124,7 +127,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -T \"${CMAKE_CURRENT_LIST_
 
 | 模块 | 器件/功能 | 主要 API | 底层依赖 |
 | --- | --- | --- | --- |
-| Modules/motor | TB6612 ×4 | `Motor_SetDuty(ch,-1000..+1000)`（符号即方向）/ `Motor_Enable/Disable`（STBY） | bsp_pwm + bsp_gpio |
+| Modules/motor | TB6612 ×4 | `Motor_SetDuty(ch,-1000..+1000)`（符号即方向；内部写方向 GPIO 后以 |duty|/1000.0f 调 `Pwm_SetDuty`）/ `Motor_Enable/Disable`（STBY） | bsp_pwm + bsp_gpio |
 | Modules/servo | 舵机 ×3 | `Servo_SetAngle(id,deg)`（软限位）/ `Servo_Release(id)`（停脉冲=卸力） | bsp_pwm |
 | Modules/power | 功率采样 | `Power_GetVoltage/Current/Power`（窗口均值）/ `Joint_GetCurrent(k)` | bsp_adc |
 | Modules/oled | SSD1306 | `Oled_Init` / `Oled_Printf(x,y,...)` / `Oled_Refresh` | bsp_iic |
@@ -132,7 +135,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -T \"${CMAKE_CURRENT_LIST_
 
 **实现要点（验收关键）：**
 
-1. **bsp_pwm**：纯片上接口，不知道"电机/舵机"为何物；TIM5 每 step=20µs；Init 后默认 duty=0 / 中位脉宽（上电安全链的片上部分，不依赖上层调用顺序）。
+1. **bsp_pwm**：纯片上接口，不知道"电机/舵机"为何物；TIM5 每 step=20µs；Init 后默认 duty=0 / 0 脉宽（不发脉冲=卸力；上电安全链的片上部分，不依赖上层调用顺序；舵机中位脉冲由 Modules/servo 的 Init 发，500~2500µs 量程是舵机知识不进 BSP）。v1.2 勘误（2026-09-30）：SetDuty 契约由 -1000..+1000 改为 float 0.0..1.0（负值钳 0 失安全；原整数档在 ARR=3599 下每档 3.6 CCR 有量化损耗）；TIM5 CH4 已确认启用，由 ×3 改 ×4。
 2. **bsp_gpio / EXTI**：LED、蜂鸣器、按键、CSN/CE 都是普通 GPIO；`Exti_Attach(line, cb)` 注册的回调运行在 ISR 上下文，只允许置标志 / `osThreadNotify`。
 3. **bsp_encoder**：16 位计数器读数差分处理回绕（`(int16_t)(now - last)`）；换算系数（线数×4、减速比）放 `robot_config.h`，BSP 只出原始增量。
 4. **bsp_adc**：双同步模式 DMA 一次写 32 位（低 16 位=ADC1 电流，高 16 位=ADC2 电压）；DMA 启动后**丢弃前 2 个窗口**的首批样本；窗口均值样本数放 `robot_config.h`。
@@ -178,7 +181,7 @@ W2 剩余时间（10/8~10/9）做 BSP+Modules 回归，交给 Modules 功能层�
 2. **UART4 无 DMA**：115200 下每 86.8µs 一次 RX 中断，ISR 只搬一个字节；`Log_Poll` 必须及时取，否则环形缓冲溢出丢日志（调试口可容忍）。
 3. **双 ADC 数据拆分**：DMA 缓冲是 32 位（ADC1|ADC2<<16），取错位功率就错；先验证已知分压读数。
 4. **ADC 首批样本无效**：DMA 循环启动后前几拍是旧值，`bsp_adc` 内部丢弃前 2 个窗口。
-5. **上电安全链**：STBY 复位电平低（CubeMX 已保证）+ `bsp_pwm` Init 后输出 duty=0 / 中位脉宽 + Modules 使能时序（motor/servo Init 里强制）——不依赖上层调用顺序。
+5. **上电安全链**：STBY 复位电平低（CubeMX 已保证）+ `bsp_pwm` Init 后输出 duty=0 / 0 脉宽（不发脉冲=舵机卸力）+ Modules 使能时序（motor/servo Init 里强制）——不依赖上层调用顺序。
 6. **PC13 LED 驱动仅 3mA**：限流电阻已由硬件保证，软件不得把 PC13 用作他用。
 7. **新加 remap 必补 SWJ 防御**：任何 F1 remap 组合之后补 `__HAL_AFIO_REMAP_SWJ_NOJTAG()`（现有 TIM2 已带）。
 8. **编码器电平**：引脚配置为 NOPULL，若编码器是 5V 开漏输出，确认板上外部上拉存在（规划坑 #14）。
@@ -204,4 +207,47 @@ Flash：HAL + FreeRTOS 约 30KB 起，RCT6 256KB 充足，无需关注。
 - `robot_config.h` 由 BSP 骨架先建好分组（Motor/Servo/Remote/Power/Link），占位默认值注释"待硬件实测"。
 - 遥控器端（PTX）与车端共用 `Modules/remote` + `bsp_spi/gpio/log`，工程上通过 `robot_config.h` 的编译开关区分两端（如 `#define CONFIG_REMOTE_UNIT`）。
 
+## 十、Tests/ 板级测试台规范（2026-09-30 落地）
+
+### 10.1 定位与动机
+
+`Tests/` 是**常驻主干的板级测试台**，取代两种旧做法：验收代码"验完即删"（资产消失，S1/S3 的验收程序因此失传）和"分支归档"（代码烂在分支里，API 演进后编译不过）。核心原则：**验收即测试项，永远参与编译**（正常运行仅多几 KB flash），新板 bring-up 或硬件排障时逐项重跑。
+
+⚠ 与业务任务的边界：`Tests/` 是**给人用的诊断**（手动选项目、带详细打印）；`UserApp/` 是**给机器人用的业务**（静默常驻、喂控制逻辑）。同一外设允许两边各有一个消费者（如 `test_remote.c` 与 `remote_task.c`），但业务逻辑禁止写进 Tests/，诊断打印禁止带进 UserApp。测试台激活时业务任务必须调 `TestBench_Yield("任务名")` 让位（共享外设互斥）。
+
+### 10.2 架构三件套
+
+| 件 | 位置 | 职责 |
+| --- | --- | --- |
+| 选择宏 | `Bsp/robot_config.h` → `ROBOT_TEST_BENCH` | 跑哪一项（0=关闭，业务固件常态，测试任务退化为心跳+栈高水位） |
+| 调度器 | `Tests/test_bench.c`（强覆盖 CubeMX 的 `StartApp_TestBench_Task`，Normal/512w） | Init 一次 → 10ms 轮询 Poll → 2s 心跳（LED1 1Hz + `uxTaskGetStackHighWaterMark` 自证栈余量） |
+| 登记表 | `Tests/test_bench.c` 的 `s_table[]` | `{枚举, 名称, Init, Poll}` 四元组；枚举在 `test_bench.h` |
+
+`TestBench_Yield(name)`：测试台激活时打印提示并永久挂起调用任务（业务任务让位的唯一通道）；未激活时立即返回无副作用。CubeMX 侧依赖：`App_TestBench_T` 任务（512 word）+ `INCLUDE_uxTaskGetStackHighWaterMark=1`。
+
+### 10.3 新增测试项三步流程
+
+1. 写 `Tests/test_xxx.c`：实现 `void Test_xxx_Init(void)`（一次性，失败置内部 `s_ok=false`）与 `void Test_xxx_Poll(void)`（**非阻塞单次迭代**，慢节奏统计自管节拍，禁止长循环阻塞调度）；
+2. `test_bench.c`：声明 + `s_table[]` 追加一行；
+3. `robot_config.h`：`ROBOT_TEST_BENCH` 改成对应编号，注释里的选择表同步补一行。
+
+**编号规则（硬性）：只增不改不插**。编号是外部配置值（robot_config.h 里手填的），重排/插入会使既有配置悄悄改变语义——新项一律追加到枚举尾部。当前表：0=NONE 1=GPIO(S1) 2=ENCODER(S3) 3=SPI(S2) 4=PWM(S4) 5=REMOTE(S2 链路)。
+
+### 10.4 验收代码迁移模式（以 remote 为范例）
+
+每个 S 阶段的临时验收代码，验收通过后不是删除，而是**一拆二**：
+
+- **业务路径** → `UserApp/`（正式任务：静默、1Hz 统计、给二期留数据接缝，如 `remote_task.c`）；
+- **诊断路径** → `Tests/`（A1/A2/A3 体检、逐包打印、寄存器 dump，如 `test_remote.c`）。
+
+既有范例：`Tests/test_gpio.c`（S1）/`test_encoder.c`（S3，按 commit message 的验收语义重写）/`test_spi.c`/`test_remote.c`（S2，从 remote_acceptance.c 迁入）。业务与诊断各留一份相似骨架是刻意的：两者会朝不同方向演化（诊断加深度、业务加逻辑），抽公共骨架反而耦合。
+
+### 10.5 编写要点（踩坑沉淀）
+
+- **判据写"总线存活"而非"出厂状态"**：模块 VCC 不随 MCU 复位掉电，复位后读到残留状态（如 nRF24 RX_DR=0x40）不是故障；只有全 0x00/0xFF 才是总线死。参考 `test_remote.c` 的 A1 三分支打日志；
+- 共享外设的测试项与业务项互斥靠 `TestBench_Yield`，勿自行加锁；
+- 测试打印走 `Log_Printf`（UART4 队列满丢弃不阻塞），高频逐包打印仅限排障期，常态用 1s 统计行；
+- 新板 bring-up 顺序即枚举顺序：NONE 心跳 → GPIO → ENCODER → SPI → REMOTE → 后续 PWM/ADC/I2C。
+
 编制日期：2026-09-27 | 基线：Hardware/F103RC 已复核代码 | 上游：《RM校内赛开发规划》v1.0
+第十节：2026-09-30 | 依据：S2 双板联调实践（remote 验收转正为首个迁移范例）

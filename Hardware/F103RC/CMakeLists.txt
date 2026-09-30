@@ -50,11 +50,13 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 file(GLOB_RECURSE BSP_SOURCES    CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/../../Bsp/*.c")
 file(GLOB_RECURSE MODULE_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/../../Modules/*.c")
 file(GLOB_RECURSE USERAPP_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/../../UserApp/*.c")
+file(GLOB_RECURSE TESTS_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/../../Tests/*.c")
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     ${BSP_SOURCES}
     ${MODULE_SOURCES}
     ${USERAPP_SOURCES}
+    ${TESTS_SOURCES}
 )
 
 # Add include paths
@@ -64,6 +66,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/../../Modules"
     "${CMAKE_CURRENT_LIST_DIR}/../../Modules/remote"
     "${CMAKE_CURRENT_LIST_DIR}/../../UserApp"
+    "${CMAKE_CURRENT_LIST_DIR}/../../Tests"
 )
 
 # Add project symbols (macros)

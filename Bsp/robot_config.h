@@ -42,13 +42,21 @@
 #define ROBOT_REMOTE_PAYLOAD        15
 /* 链路看门狗超时：300~500ms，收不到包判定失联 —— 待联调定型 */
 #define ROBOT_REMOTE_WATCHDOG_MS    400
+/* 【临时诊断】收发角色互换：1=车端发(PTX)/测试板收(PRX)，0=正常角色。
+ * 用于切开"测试板模块发射坏"与"车板模块接收坏"，诊断完改回 0 */
+#define ROBOT_DIAG_ROLE_SWAP        0
+/* 自动应答（Enhanced ShockBurst ACK）：0=关闭（单向广播，PTX 发完即算成功）。
+ * 当前=0 用于联调诊断：切开"包解码失败"与"ACK 路径失败"；W1 验收只需车端收到，
+ * 双向 ACK 待模块定型后再开 */
+#define ROBOT_RF_AUTO_ACK           0
 /* PRX 帧队列深度：IRQ 搬运后待上层消费的帧数，满则丢最旧 */
 #define ROBOT_REMOTE_RX_QUEUE       4
 /* PTX 单包发送等待 IRQ 的兜底超时：自动重传最坏 10次×3.75ms=37.5ms，上取 50 */
 #define ROBOT_REMOTE_TX_TIMEOUT_MS  50
 
 /* ---- nRF24 RF 参数（经 Nrf24_Config_t 下发，全部待双板联调定型） ---- */
-#define ROBOT_RF_CHANNEL            40      /* 2.440GHz，联调遇干扰可改 */
+#define ROBOT_RF_CHANNEL            90      /* 2490MHz：WiFi13 掩码上沿(2484)与蓝牙(2480)之上，
+                                             * 实测避开 2.4G 干扰；超出 ISM 上沿(2483.5)，仅限实验室近距离测试 */
 #define ROBOT_RF_DATA_RATE          1       /* 1=1Mbps（距离优先），0=2Mbps */
 #define ROBOT_RF_TX_POWER           3       /* RF_PWR 3 = 0dBm */
 #define ROBOT_RF_ADDR_WIDTH         5       /* 字节，3~5 */
@@ -68,5 +76,12 @@
 
 /* 车端各任务间通信的统一命令包结构尺寸占位，随 UserApp 二期细化 */
 #define ROBOT_CMD_MAX_SIZE          16
+
+/* ================================ TestBench =============================== */
+
+/* 板级测试台选择（取值见 Tests/test_bench.h 枚举）：0=关闭（业务固件常态，
+ * 测试任务只打心跳+栈高水位）；新板 bring-up 时按依赖序逐项改选：
+ * 1=GPIO(S1) 2=ENCODER(S3) 3=SPI(S2)。激活时业务任务自动让位。 */
+#define ROBOT_TEST_BENCH            0
 
 #endif /* F103RC_ROBOT_CONFIG_H */

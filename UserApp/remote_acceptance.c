@@ -18,6 +18,7 @@
 #include "remote.h"
 #include "nrf24.h"
 #include "robot_config.h"
+#include "test_bench.h"
 
 /* A1/A2：直接走 nrf24 寄存器层，与 Remote_Init 的机内校验互为独立证据 */
 static bool PreCheck(void)
@@ -56,6 +57,7 @@ void StartApp_Remote_Task(void const * argument)
 {
     (void)argument;
     osDelay(100u);      /* 等 Bsp/Log 初始化与模块电源稳定 */
+    TestBench_Yield("remote");  /* 测试台激活时让位（SPI 归测试台独占） */
 
     if (!PreCheck())
     {
@@ -63,13 +65,42 @@ void StartApp_Remote_Task(void const * argument)
         for (;;) { osDelay(1000u); }
     }
 
-    if (!Remote_Init(REMOTE_MODE_PRX))
+    if (!Remote_Init(ROBOT_DIAG_ROLE_SWAP ? REMOTE_MODE_PTX : REMOTE_MODE_PRX))
     {
         Log_Printf("[A3] Remote_Init FAIL\r\n");
         for (;;) { osDelay(1000u); }
     }
     DumpPrxRegs();
-    Log_Printf("[A3] Remote_Init(PRX) OK\r\n");
+    Log_Printf("[A3] Remote_Init(%s) OK\r\n",
+               ROBOT_DIAG_ROLE_SWAP ? "PTX 诊断互换" : "PRX");
+
+#if ROBOT_DIAG_ROLE_SWAP
+    /* 诊断互换：车端临时当发送端，验证车板模块的发射能力 */
+    {
+        uint8_t  frame[ROBOT_REMOTE_PAYLOAD] = {0};
+        uint32_t seq = 0u, attempts = 0u, ack_ok = 0u;
+        uint32_t last_stat_ms = Bsp_GetMs();
+
+        for (;;)
+        {
+            frame[0] = (uint8_t)(++seq);
+            attempts++;
+            if (Remote_SendPacket(frame, (uint8_t)sizeof frame)) { ack_ok++; }
+
+            uint32_t now = Bsp_GetMs();
+            if ((now - last_stat_ms) >= 1000u)
+            {
+                uint8_t obs = Nrf24_ReadReg(NRF_REG_OBSERVE_TX);
+                Log_Printf("[CAR-TX] att=%u ok=%u fail=%u seq=%u st=0x%02X arc=%u\r\n",
+                           (unsigned)attempts, (unsigned)ack_ok,
+                           (unsigned)Remote_GetTxFailCount(), (unsigned)seq,
+                           Nrf24_GetStatus(), (unsigned)(obs & 0x0Fu));
+                last_stat_ms = now;
+            }
+            osDelay(10u);
+        }
+    }
+#endif
 
     /* 主循环：帧到达即打印首字节序号；每秒统计一次收包率与链路状态 */
     uint8_t  frame[ROBOT_REMOTE_PAYLOAD];
@@ -90,9 +121,16 @@ void StartApp_Remote_Task(void const * argument)
         if ((now - last_stat_ms) >= 1000u)
         {
             uint32_t cnt = Remote_GetRxCount();
-            Log_Printf("[STAT] %upkts/s total=%u link=%d\r\n",
+            /* rpd=载波检测（166us 窗口内收到 >-64dBm 的 2.4G 能量即 1）：
+             * rpd 恒 0 = 空中根本没能量（对端没发射/距离/天线）；
+             * rpd=1 但收不到包 = 有能量解码失败（频偏/速率/地址） */
+            Log_Printf("[STAT] %upkts/s total=%u link=%d rpd=%d ch=%d rf=0x%02X st=0x%02X\r\n",
                        (unsigned)(cnt - last_count), (unsigned)cnt,
-                       (int)Remote_IsLinkUp());
+                       (int)Remote_IsLinkUp(),
+                       (int)(Nrf24_ReadReg(NRF_REG_RPD) & 0x01u),
+                       (int)Nrf24_ReadReg(NRF_REG_RF_CH),
+                       Nrf24_ReadReg(NRF_REG_RF_SETUP),
+                       Nrf24_GetStatus());
             last_count = cnt;
             last_stat_ms = now;
         }

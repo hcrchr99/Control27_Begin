@@ -52,6 +52,7 @@ osThreadId App_ChassisTaskHandle;
 osThreadId App_Grab_TaskHandle;
 osThreadId App_Sense_TaskHandle;
 osThreadId App_Daemon_TaskHandle;
+osThreadId App_TestBench_THandle;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -63,6 +64,7 @@ void StartApp_Chassis_Task(void const * argument);
 void StartApp_Grab_Task(void const * argument);
 void StartApp_Sense_Task(void const * argument);
 void StartApp_Daemon_Task(void const * argument);
+void StartApp_TestBench_Task(void const * argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -128,6 +130,10 @@ void MX_FREERTOS_Init(void) {
   /* definition and creation of App_Daemon_Task */
   osThreadDef(App_Daemon_Task, StartApp_Daemon_Task, osPriorityLow, 0, 768);
   App_Daemon_TaskHandle = osThreadCreate(osThread(App_Daemon_Task), NULL);
+
+  /* definition and creation of App_TestBench_T */
+  osThreadDef(App_TestBench_T, StartApp_TestBench_Task, osPriorityNormal, 0, 512);
+  App_TestBench_THandle = osThreadCreate(osThread(App_TestBench_T), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -223,6 +229,24 @@ __weak void StartApp_Daemon_Task(void const * argument)
     osDelay(1);
   }
   /* USER CODE END StartApp_Daemon_Task */
+}
+
+/* USER CODE BEGIN Header_StartApp_TestBench_Task */
+/**
+* @brief Function implementing the App_TestBench_T thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartApp_TestBench_Task */
+__weak void StartApp_TestBench_Task(void const * argument)
+{
+  /* USER CODE BEGIN StartApp_TestBench_Task */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END StartApp_TestBench_Task */
 }
 
 /* Private application code --------------------------------------------------*/

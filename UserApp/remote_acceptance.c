@@ -20,12 +20,17 @@
 #include "robot_config.h"
 #include "test_bench.h"
 
-/* A1/A2：直接走 nrf24 寄存器层，与 Remote_Init 的机内校验互为独立证据 */
+/* A1：总线存活判据。0x00/0xFF = MISO 死/CSN 错/未共地。
+ * ⚠ 非 0x0E 不判死：模块 VCC 不随 MCU 复位掉电，复位期间对端若仍在发包，
+ * 重启后可能读到残留 RX_DR(0x40)——芯片活着且配置未失，Nrf24_Configure
+ * 会重配置+清标志+清 FIFO，可完整恢复。 */
 static bool PreCheck(void)
 {
     uint8_t st = Nrf24_GetStatus();
-    Log_Printf("[A1] STATUS reset=0x%02X (expect 0x0E)\r\n", st);
-    if (st != 0x0Eu)
+    Log_Printf("[A1] STATUS=0x%02X%s\r\n", st,
+               (st == 0x0Eu) ? " (上电复位值)" :
+               (st == 0x40u) ? " (模块未断电：残留 RX_DR，将重配置恢复)" : " (异常值)");
+    if (st == 0x00u || st == 0xFFu)
     {
         return false;
     }

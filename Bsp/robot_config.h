@@ -45,10 +45,10 @@
 /* 【临时诊断】收发角色互换：1=车端发(PTX)/测试板收(PRX)，0=正常角色。
  * 用于切开"测试板模块发射坏"与"车板模块接收坏"，诊断完改回 0 */
 #define ROBOT_DIAG_ROLE_SWAP        0
-/* 自动应答（Enhanced ShockBurst ACK）：0=关闭（单向广播，PTX 发完即算成功）。
- * 当前=0 用于联调诊断：切开"包解码失败"与"ACK 路径失败"；W1 验收只需车端收到，
- * 双向 ACK 待模块定型后再开 */
-#define ROBOT_RF_AUTO_ACK           0
+/* 自动应答（Enhanced ShockBurst ACK）：1=开启（PTX 收到 ACK 才算成功，失败自动重传，
+ * PRX 按 PID 自动去重副本）；0=单向广播。链路修复后已重新启用验证，
+ * 若模块 ACK 路径异常（PTX fail 增长）改回 0 即回退广播形态 */
+#define ROBOT_RF_AUTO_ACK           1
 /* PRX 帧队列深度：IRQ 搬运后待上层消费的帧数，满则丢最旧 */
 #define ROBOT_REMOTE_RX_QUEUE       4
 /* PTX 单包发送等待 IRQ 的兜底超时：自动重传最坏 10次×3.75ms=37.5ms，上取 50 */

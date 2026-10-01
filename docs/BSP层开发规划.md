@@ -1,6 +1,7 @@
 # 《机甲夺矿》BSP 层开发规划 v1.2
 
-> 上游文档：《RM校内赛开发规划》v1.0（2026-09-27 遥控链路已变更为 nRF24L01/SPI2）。
+> 上游文档：《RM校内赛代码分层架构》v1.1（2026-09-30 修订，承接原《RM校内赛开发规划》v1.0；遥控链路 09-27 已变更为 nRF24L01/SPI2）。
+> 下游文档：《Modules层开发规划》v1.0（2026-09-30 新增，S5 起的 L3 排期与接口定稿）。
 > 本文档基线：Hardware/F103RC CubeMX 生成代码（CMake 工具链，2026-09-27 复核通过）。
 > **v1.1 修订（2026-09-27）**：BSP 只封装**片上外设**（PWM/编码器/ADC/UART/SPI/I²C/GPIO/EXTI/DWT）；
 > Motor/Servo/Power/OLED/Remote 等含"器件知识"的封装全部移入 Modules（对齐 control-2026 分层）。
@@ -128,7 +129,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -T \"${CMAKE_CURRENT_LIST_
 | 模块 | 器件/功能 | 主要 API | 底层依赖 |
 | --- | --- | --- | --- |
 | Modules/motor | TB6612 ×4 | `Motor_SetDuty(ch,-1000..+1000)`（符号即方向；内部写方向 GPIO 后以 |duty|/1000.0f 调 `Pwm_SetDuty`）/ `Motor_Enable/Disable`（STBY） | bsp_pwm + bsp_gpio |
-| Modules/servo | 舵机 ×3 | `Servo_SetAngle(id,deg)`（软限位）/ `Servo_Release(id)`（停脉冲=卸力） | bsp_pwm |
+| Modules/servo | 舵机 ×4（TIM5 四通道全启用） | `Servo_SetAngle(id,deg)`（软限位）/ `Servo_Release(id)`（停脉冲=卸力） | bsp_pwm |
 | Modules/power | 功率采样 | `Power_GetVoltage/Current/Power`（窗口均值）/ `Joint_GetCurrent(k)` | bsp_adc |
 | Modules/oled | SSD1306 | `Oled_Init` / `Oled_Printf(x,y,...)` / `Oled_Refresh` | bsp_iic |
 | Modules/remote | nRF24L01 + 链路 | `Nrf24_Init(mode)`（PTX/PRX）/ `Nrf24_ReadRx(buf15)` + 300~500ms 看门狗 | bsp_spi + bsp_gpio + EXTI |
@@ -143,7 +144,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -T \"${CMAKE_CURRENT_LIST_
 6. **bsp_spi / bsp_iic**：全部带超时；CSN/CE 建立时间 ≥5µs 的时序由 Modules/remote 用 `Bsp_DelayUs` 控制；I²C 连续失败触发总线恢复（DeInit→Init）。
 7. **Modules/motor**：`SetDuty` 内先写方向 GPIO 再写 PWM（同边沿切换防共导通）；`Motor_Disable` 必须同时 duty=0 + STBY 拉低；上电默认 Disable（CubeMX 已保证 STBY 复位电平低）。
 8. **Modules/servo**：50Hz/1000 步下 500~2500µs = 0~180°；`Init` 先发中位脉冲 300ms 再使能（防上电猛冲）；`Release` 停发 PWM 卸力（规划五.2 机制的硬件基础）。
-9. **Modules/remote**：nRF24 寄存器级完整实现（R/W_REGISTER、FLUSH_TX/RX、RF_SETUP、重传参数）；IRQ 经 `Exti_Attach` 回调里只清标志 + `osThreadNotify`，取包/解析在 remote_task；看门狗 300~500ms 在本层；**PTX/PRX 双模式**，遥控器端直接复用。
+9. **Modules/remote**：nRF24 寄存器级完整实现（R/W_REGISTER、FLUSH_TX/RX、RF_SETUP、重传参数）；IRQ 经 `Exti_Attach` 回调里只清标志 + `osThreadNotify`，取包/解析在 remote_task；看门狗 300~500ms 在本层；**PTX/PRX 双模式**，发送端（测试板 F103C8_PTX_T 及未来遥控器整机）直接复用。
 10. **Modules/oled**：I²C 阻塞发送即可（调用方是 BelowNormal 的 sense_task），但必须带超时防 I²C 挂死。
 
 ## 五、中断与优先级分配
@@ -162,16 +163,16 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -T \"${CMAKE_CURRENT_LIST_
 
 | 阶段 | 时间 | 内容 | 验收标准 |
 | --- | --- | --- | --- |
-| S0 | 9/27~9/28 | Bsp/ 目录 + CMake 接入 + bsp_pin.h + bsp_sys + bsp_log | 交叉编译通过，printf 走 UART4 输出正常（已开工） |
-| S1 | 9/29 | bsp_gpio（含 EXTI 注册） | 按键点亮 LED、蜂鸣器提示音 |
-| S2 | 9/29~10/2 | **bsp_spi + Modules/remote（W1 关键路径）** | 车端 PRX 稳定收 15B 包、收包率 >95%、PTX 端遥控器整机联调 |
-| S3 | 10/3 | bsp_encoder ×4 | 手转四轮：计数连续、换向符号正确、无跳变 |
-| S4 | 10/4 | bsp_pwm（TIM4/TIM5） | 20kHz duty / 50Hz 脉宽输出经示波器验证 |
-| S5 | 10/5 | Modules motor + servo | 四路开环正反转；舵机上电中位、0~180° 扫描、卸力/恢复 |
-| S6 | 10/6 | bsp_adc + Modules/power | 串口打印 V/I，与万用表误差 <5%，双 ADC 同步性验证 |
-| S7 | 10/7 | bsp_iic + Modules/oled | OLED 显示电压/电流/任务心跳 |
+| S0 | 9/27~9/28 | ✅ bsp_pin.h + bsp_sys + bsp_log（50d69d4） | printf 走 UART4 板端验收通过 |
+| S1 | 9/29 | ✅ bsp_gpio（含 EXTI 注册，3b5351c） | 按键点亮 LED、蜂鸣器提示音 |
+| S2 | 9/29~9/30 | ✅ bsp_spi + Modules/remote（136956e / b536f0a） | 双板联调 W1 验收：PRX 100pkts/s、收包率 100%>95%、seq 连续、看门狗 400ms 内 link=0 |
+| S3 | 提前完成 | ✅ bsp_encoder ×4（bb35b3b） | 手转四轮：计数连续、换向符号正确、无跳变 |
+| S4 | 提前完成 | ✅ bsp_pwm TIM4×4 20kHz / TIM5×4 50Hz（81f732c） | duty / 脉宽输出经示波器验证通过 |
+| S5 | 10/5（可提前） | Modules motor + servo | 四路开环正反转；舵机上电中位、0~180° 扫描、卸力/恢复（接口定稿见 Modules 规划 §3.1/3.2） |
+| S6 | 10/6 | bsp_adc + Modules/power | 串口打印 V/I，与万用表误差 <5%，双 ADC 同步性验证（§3.4） |
+| S7 | 10/7 | bsp_iic + Modules/oled | OLED 显示电压/电流/任务心跳（§3.5） |
 
-W2 剩余时间（10/8~10/9）做 BSP+Modules 回归，交给 Modules 功能层（速度环、运动学）。
+W2 剩余时间（10/8~10/9）做 BSP+Modules 全量回归（测试台编号逐项重跑，编号分配见 Modules 规划 §四）；交接口——速度环、RC_Cmd 遥控协议层、actuator、alarm——见《Modules层开发规划.md》§3.7/3.8/3.3/3.6。
 
 **提交规范**（规划四.6）：每个 S 阶段 ≥1 次功能小提交，作者真名，commit message 注明模块与验收结果——这是自主设计的唯一证明。
 
@@ -205,7 +206,7 @@ Flash：HAL + FreeRTOS 约 30KB 起，RCT6 256KB 充足，无需关注。
 
 - BSP 的外设 API 完成即冻结：Modules 开发期间 BSP 只修 bug 不改签名；Modules 器件驱动（motor/servo/oled/remote/power）同样对 UserApp 冻结。
 - `robot_config.h` 由 BSP 骨架先建好分组（Motor/Servo/Remote/Power/Link），占位默认值注释"待硬件实测"。
-- 遥控器端（PTX）与车端共用 `Modules/remote` + `bsp_spi/gpio/log`，工程上通过 `robot_config.h` 的编译开关区分两端（如 `#define CONFIG_REMOTE_UNIT`）。
+- 发射端（PTX）与车端共用 `Modules/remote` + `bsp_spi/gpio/log`，工程上通过 `robot_config.h` 的编译开关区分两端（如 `#define CONFIG_REMOTE_UNIT`）。发射端当前实例为测试板 F103C8_PTX_T（链路诊断专用，**非遥控器**）；遥控器整机 = Hardware/Remoter（未生成），生成后同模式接入。
 
 ## 十、Tests/ 板级测试台规范（2026-09-30 落地）
 
@@ -249,5 +250,6 @@ Flash：HAL + FreeRTOS 约 30KB 起，RCT6 256KB 充足，无需关注。
 - 测试打印走 `Log_Printf`（UART4 队列满丢弃不阻塞），高频逐包打印仅限排障期，常态用 1s 统计行；
 - 新板 bring-up 顺序即枚举顺序：NONE 心跳 → GPIO → ENCODER → SPI → REMOTE → 后续 PWM/ADC/I2C。
 
-编制日期：2026-09-27 | 基线：Hardware/F103RC 已复核代码 | 上游：《RM校内赛开发规划》v1.0
+编制日期：2026-09-27 | 基线：Hardware/F103RC 已复核代码 | 上游：《RM校内赛代码分层架构》v1.1
 第十节：2026-09-30 | 依据：S2 双板联调实践（remote 验收转正为首个迁移范例）
+进度结算：2026-09-30 | S0~S4 全部验收通过，S5 起移交《Modules层开发规划》v1.0

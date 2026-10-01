@@ -231,7 +231,13 @@ float Ease_Step(float cur, float target, float max_step); /* 限速斜坡：actu
 /* user_lib 精选移植（control-2026 Modules/algorithm/user_lib）：
    abs_limit / float_constrain / float_deadband / loop_float_constrain（角度环形差值，
    编码器累计回绕与麦轮解算会用到） */
+
 ```
+
+**运动学解算的归属（2026-10-01 与用户确认）**：
+
+- **麦轮逆解（vx/vy/omega → 4×轮速）归 UserApp/chassis**，不进本模块——它与遥控指令映射、速度限幅、死区、旋转中心手感**一体调参**，是底盘应用的有机部分（对齐 control-2026 chassis 传统，架构 3.3"麦轮正逆解不在此层"即此意）；数据流：`RC_Cmd_GetCopy` 快照 → 麦轮逆解纯公式 → 4×目标轮速 → `Motor_SetSpeedRpm`。公式本身只是线性组合，真正的工作量在参数整定——这正是它长在应用层的证据。
+- **机械臂 IK 暂不启用**（2026-10-01 用户拍板）：架构 §八预埋决策不变——若启用放本模块（纯几何函数 `ArmIk_Solve2R`，臂长/限位参数化进 robot_config.h，PC 单测后 grab 调用），届时 grab 的目标源可从示教姿态表无痛切换，`Act_SetTarget` 接口不变。启用前本模块不含任何 IK 代码。
 
 **实现要点**：① 纯 C 无硬件依赖（除 PID 内部时间戳走 bsp_sys 外不 include 任何 bsp/cmsis），可 host 编译 PC 单测（出错边界：dt=0、err 跳变、积分饱和、堵转计数溢出）；② 不占测试台编号（PC 单测），上板行为随 6=MOTOR（速度环）与 10=ACTUATOR（ease）间接验证；③ F103 无 FPU，float 为软浮点——控制环 1kHz 内开销可忽略（S4 已验证同类用法），但禁止在 ISR 用。
 

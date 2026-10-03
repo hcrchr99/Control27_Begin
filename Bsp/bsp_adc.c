@@ -53,23 +53,15 @@ void Adc_Init(void)
         return;
     }
 
-    /* ⚠ F1 双同步从机两个缺失位（板上实测破案 2026-10-06）：
-     * 1) CR2.EXTTRIG 无人置位——HAL_ADC_Init 有意不置（注释明说留给 Start_xxx），
-     *    而 HAL_ADCEx_MultiModeStart_DMA 只给主机置 EXTTRIG|SWSTART，其头部注释
-     *    "slave trigger already done into HAL_ADC_Init" 与实现自相矛盾；不补则
-     *    从机永不触发，DR 高半字冻结在启动残留值（实测恒 2000）。
-     * 2) CR2.CONT 从机为 DISABLE——CubeMX 对从机生成的 ContinuousConvMode=DISABLE，
-     *    主机 SWSTART 边沿只同步触发从机一拍（采到启动瞬间悬空 PA5≈轨电平 4091），
-     *    此后主机连续自触发不再产生新边沿，从机停转（实测 PA5 接 GND 读数不动）。
-     *    从机必须与主机同为连续模式。补 CONT 需重跑 HAL_ADC_Init（F1 允许使能
-     *    空闲态重配，与 ADC3 降单通道同一手法）；注意 Init 会清 EXTTRIG，故
-     *    SET_BIT 必须在重跑之后 */
-    hadc2.Init.ContinuousConvMode = ENABLE;
-    if (HAL_ADC_Init(&hadc2) != HAL_OK)
-    {
-        Log_Printf("[ADC] ADC2 连续模式重配失败\r\n");
-        return;
-    }
+    /* ⚠ F1 双同步从机缺配（板上两轮破案 2026-10-06）：
+     * 坑① CR2.EXTTRIG 无人置位——HAL_ADC_Init 有意不置（注释明说留给
+     *   Start_xxx），而 HAL_ADCEx_MultiModeStart_DMA 只给主机置 EXTTRIG|SWSTART，
+     *   头部注释却声称从机的"已在 Init 完成"：从机永不触发，DR 高半字恒 2000。
+     *   触发源 EXTSEL 已由 MX_ADC2_Init 写为软件启动档，这里补使能位即可。
+     *   ⚠ 这个缺口 CubeMX 填不了（HAL 行为），运行期 SET_BIT 是唯一修复点。
+     * 坑② 从机 CONT 原为 DISABLE（工程漏配，非生成器限制——.ioc 可配）→
+     *   触发一拍即停冻在单拍值。已改由 .ioc 源头配置（ADC2.ContinuousConvMode
+     *   =ENABLE 生成），运行期不再处理。 */
     SET_BIT(hadc2.Instance->CR2, ADC_CR2_EXTTRIG);
 
     /* ⚠ 双同步专用启动（普通 Start_DMA 在多模式下返回 HAL_ERROR）。

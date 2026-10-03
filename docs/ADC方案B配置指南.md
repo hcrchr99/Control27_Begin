@@ -7,7 +7,7 @@
 > **⚠ 2026-10-06 勘误（S6 板上实测，以下三处以本勘误为准，正文保留作历史）**：
 > ① §2.1 "DMA Continuous Requests=Enabled" 与 §3 对应自检行是 **F4/L4 系概念——F103 的 ADC CR2 无 DDS 位**，.ioc 无此项不是漏配，循环 DMA 在 F1 持续搬运；
 > ② §4.1 启动函数应为 **`HAL_ADCEx_MultiModeStart_DMA`**（`HAL_ADC_Start_DMA` 在多模式下直接返回 HAL_ERROR，stm32f1xx_hal_adc.c 多模式分支）；
-> ③ **从机 ADC2 须补 `CR2.EXTTRIG` + `ContinuousConvMode=ENABLE`**——`HAL_ADC_Init` 有意把 EXTTRIG 留给 Start_xxx、CubeMX 给从机生成 CONT=DISABLE，而 MultiModeStart_DMA 只管主机；实测症状两阶段："永不触发（高半字恒 2000）"→"触发一拍即停（冻在单次采样值）"，详见 BSP 坑 #11/#12。另：ADC 基准=VDDA，供电形态变更必须复标（BSP 坑 #13）。
+> ③ **从机 ADC2 须补 `CR2.EXTTRIG`（HAL 缺口，CubeMX 填不了）+ `ContinuousConvMode=ENABLE`（CubeMX 可配，原工程漏配，已改 .ioc 源头）**——实测症状两阶段："永不触发（高半字恒 2000）"→"触发一拍即停（冻在单次采样值）"，详见 BSP 坑 #11/#12；另：ADC 基准=VDDA，供电形态变更必须复标（BSP 坑 #13）。
 
 ---
 

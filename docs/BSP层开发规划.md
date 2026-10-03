@@ -189,7 +189,7 @@ W2 剩余时间（10/8~10/9）做 BSP+Modules 全量回归（测试台编号逐�
 9. **EXTI 共享中断线**：PC5 与 PA11/12 分属 EXTI9_5 / EXTI15_10 两条线，`HAL_GPIO_EXTI_IRQHandler` 自动判引脚，勿在回调里混判断逻辑。
 10. **I²C 挂死**：OLED 排线接触不良会把 I²C2 拉死，`bsp_iic` 必须带超时与总线恢复，不许无限等。
 11. **双同步从机触发链缺配① EXTTRIG**：F1 `HAL_ADC_Init` 有意不置 CR2.EXTTRIG（源码注释明说留给 Start_xxx），`HAL_ADCEx_MultiModeStart_DMA` 只置主机却注释称从机"已在 Init 完成"——从机须 `SET_BIT(EXTTRIG)`，否则永不触发、DR 高半字冻结（2026-10-06 实测恒 2000、PA5 接 GND/3.3V 均无反应）。
-12. **双同步从机触发链缺配② CONT**：CubeMX 给从机生成 `ContinuousConvMode=DISABLE`（.ioc 无此项），主机连续自触发只经 SWSTART 边沿同步触发从机一拍即停（实测高半字冻在单次采样值 4091）——从机重跑 `HAL_ADC_Init(CONT=ENABLE)`，且 SET_BIT(EXTTRIG) 必须在重跑之后（Init 会清 EXTTRIG）。
+12. **双同步从机触发链缺配② CONT**：从机 `ContinuousConvMode=DISABLE` 时主机 SWSTART 边沿只同步触发从机一拍即停（实测高半字冻在单次采样值 4091），从机必须与主机同为连续模式。【2026-10-06 勘误】CubeMX 界面**可配**从机 CONT（原工程漏配，非生成器限制）——已改 .ioc 源头生成 ENABLE；运行期必须补的只剩 EXTTRIG（坑 #11，HAL 缺口 CubeMX 填不了）。
 13. **ADC 基准=VDDA，随供电形态漂移**：USB 供电下 VDDA 下漂，同一电压读数整体偏高且随时间增大（实测增益 +2.6%→更大，反推 VDDA 3.21V→3.11V）；换电源模块供电后 V_K 0.9745→0.993 复准。链路级标定系数只在标定时的供电形态下有效——**供电形态变更（含最终上电池）必须复标**，这正是标定日期存在的意义。
 14. **newlib-nano 未启 `_printf_float`**：`%f` 板上打印失效（不报错、打空）——测试台/日志一律整型小数化打印（mV/mA/mW）；S7 OLED 若需 %f 须链接 `-u _printf_float`（flash +~8KB，届时决策）。
 

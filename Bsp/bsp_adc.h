@@ -8,10 +8,10 @@
  *    DMA 中断已在 main.c 屏蔽，数据由 DMA 持续刷新，任务直接读内存；
  *  - ⚠ 双同步启动必须用 HAL_ADCEx_MultiModeStart_DMA（HAL_ADC_Start_DMA 在
  *    多模式下直接返回 HAL_ERROR，stm32f1xx_hal_adc.c 的 multimode 分支）；
- *  - ⚠ 从机 ADC2 两个缺失配置（HAL_ADC_Init 有意把 EXTTRIG 留给 Start_xxx、
- *    CubeMX 给从机生成 CONT=DISABLE，而 MultiModeStart_DMA 只管主机）——
- *    Adc_Init 内重跑 HAL_ADC_Init(CONT=ENABLE) + SET_BIT(EXTTRIG)，否则从机
- *    只被触发一拍即停、DR 高半字冻结（板上实测 2026-10-06 两轮破案）；
+ *  - ⚠ 从机 ADC2 缺配两处（板上两轮破案 2026-10-06）：①EXTTRIG 无人置位
+ *    （HAL_ADC_Init 有意留给 Start_xxx，MultiModeStart_DMA 只管主机，CubeMX
+ *    也填不了）——Adc_Init 内 SET_BIT 补位；②从机 CONT 原为 DISABLE（工程
+ *    漏配，.ioc 可配）——已改 .ioc 源头生成 ENABLE，运行期不再处理；
  *  - ⚠ F103 的 ADC CR2 无 DDS 位（"DMA Continuous Requests" 为 F4/L4 系概念），
  *    方案 B 指南 §2.1/§3 该自检项在 F1 不适用——循环 DMA 本身持续搬运；
  *  - 只出外设级 API（原始码/均值），物理量换算在 Modules/power（标定点唯一）；

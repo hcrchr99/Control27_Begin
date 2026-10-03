@@ -116,8 +116,11 @@ typedef struct
 #define PIN_PWM50HZ_CH2         TIM_CHANNEL_2   /* PA1 */
 #define PIN_PWM50HZ_CH3         TIM_CHANNEL_3   /* PA2 */
 #define PIN_PWM50HZ_CH4         TIM_CHANNEL_4   /* PA3 */
-#define PIN_PWM50HZ_ARR         999u
-#define PIN_PWM50HZ_US_PER_STEP 20u     /* 20ms 周期 / (ARR+1)=1000 步 */
+#define PIN_PWM50HZ_ARR         9999u
+#define PIN_PWM50HZ_US_PER_STEP 2u      /* 20ms 周期 / (ARR+1)=10000 步；
+                                             * 2026-10-02 步距 20µs→2µs（TIM5 PSC
+                                             * 1440→144 配套改，舵机指令分辨率
+                                             * 1.8°→0.18°/步） */
 
 /* ================================ 编码器输入 =============================== */
 

@@ -54,8 +54,9 @@ void Pwm_SetDuty(uint8_t ch, float duty);
 /**
  * @brief  设置指定通道脉宽（仅 50Hz 组 TIM5 CH1-4，其余通道忽略）
  * @param  ch PWM_50HZ_CH1..4
- * @param  us 正脉宽，0..20000µs；超界钳到 20000（= 1000 步 = 恒高）。
- *         1 步 = 20µs（PIN_PWM50HZ_US_PER_STEP）；500~2500µs 舵机软限位
+ * @param  us 正脉宽，0..20000µs；超界钳到 20000（= 10000 步 = 恒高）。
+ *         1 步 = 2µs（PIN_PWM50HZ_US_PER_STEP；2026-10-02 由 20µs 细化，
+ *         TIM5 PSC 1440→144 配套改）；500~2500µs 舵机软限位
  *         是舵机知识，由 Modules/servo 负责钳位，BSP 只保物理可行范围
  */
 void Pwm_SetPulseUs(uint8_t ch, uint32_t us);

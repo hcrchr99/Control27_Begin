@@ -115,6 +115,22 @@
 /* ADC3 单次转换轮询超时（ms）：转换约 6µs，2ms 余量 ~300 倍 */
 #define ROBOT_ADC_TIMEOUT_MS        2
 
+/* ================================== IIC =================================== */
+
+/* I²C 事务超时（ms）：SSD1306 整页 129B @100kHz ≈ 12ms，取约 2 倍余量 */
+#define ROBOT_IIC_TIMEOUT_MS        20
+/* I²C 连续失败该次数触发总线恢复（HAL_I2C_DeInit→Init，BSP 坑#10 规划决议）——
+ * 拔插排线自愈路径，恢复次数可由 Iic_GetRecoverCount 观测 */
+#define ROBOT_IIC_RECOVER_N         3
+
+/* ================================== Oled ================================== */
+
+/* SSD1306 7 位从机地址：SA0=0 → 0x3C（0.96 寸模块默认）；换 0x3D 屏只改此处 */
+#define ROBOT_OLED_I2C_ADDR         0x3C
+/* Oled_Refresh 连续失败该次数后自动重跑器件初始化——拔插排线 = OLED 模块
+ * 掉电，寄存器态全丢，须重发 init 序列（含充电泵 0x8D）才能恢复显示（坑#5） */
+#define ROBOT_OLED_REINIT_AFTER_FAILS  5
+
 /* ================================ Link =================================== */
 
 /* 车端各任务间通信的统一命令包结构尺寸占位，随 UserApp 二期细化 */
@@ -125,7 +141,7 @@
 /* 板级测试台选择（取值见 Tests/test_bench.h 枚举）：0=关闭（业务固件常态，
  * 测试任务只打心跳+栈高水位）；新板 bring-up 时按依赖序逐项改选：
  * 1=GPIO(S1) 2=ENCODER(S3) 3=SPI(S2) 4=PWM(S4) 5=REMOTE(S2 链路收发)
- * 6=MOTOR(S5) 7=SERVO(S5) 8=POWER(S6)。激活时业务任务自动让位。 */
-#define ROBOT_TEST_BENCH            8
+ * 6=MOTOR(S5) 7=SERVO(S5) 8=POWER(S6) 9=OLED(S7)。激活时业务任务自动让位。 */
+#define ROBOT_TEST_BENCH            9
 
 #endif /* F103RC_ROBOT_CONFIG_H */

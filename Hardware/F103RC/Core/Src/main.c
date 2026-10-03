@@ -34,6 +34,7 @@
 #include "bsp_encoder.h"
 #include "bsp_pwm.h"
 #include "bsp_adc.h"
+#include "bsp_iic.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -125,6 +126,8 @@ int main(void)
   Pwm_InitAll();
   /* S6: 启动 ADC1/2 双同步 DMA 循环采样（校准+丢前2窗）与 ADC3 单通道轮询配置 */
   Adc_Init();
+  /* S7: I²C2 总线服务就绪（校验 hi2c2；阻塞读写+超时+总线恢复见 Iic_*） */
+  Iic_Init();
   /* USER CODE END 2 */
 
   /* Call init function for freertos objects (in cmsis_os2.c) */

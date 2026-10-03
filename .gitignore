@@ -18,4 +18,9 @@ Release/
 
 # Tool byproducts (local, regenerable)
 .zcode/
+.cache/
+.zed/
+ozone/
 Hardware/F103RC/CMakePresets.json
+
+compile_commands.json

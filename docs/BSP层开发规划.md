@@ -128,7 +128,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -T \"${CMAKE_CURRENT_LIST_
 
 | 模块 | 器件/功能 | 主要 API | 底层依赖 |
 | --- | --- | --- | --- |
-| Modules/motor | TB6612 ×4 | `Motor_SetDuty(ch,-1000..+1000)`（符号即方向；内部写方向 GPIO 后以 |duty|/1000.0f 调 `Pwm_SetDuty`）/ `Motor_Enable/Disable`（STBY） | bsp_pwm + bsp_gpio |
+| Modules/motor | TB6612 ×4 | `Motor_SetDuty(ch,-1000..+1000)`（符号即方向；内部写方向 GPIO 后以 |duty|/1000.0f 调 `Pwm_SetDuty`）/ `Motor_Enable/Disable`（STBY）【2026-10-03 变更：形参改 float ±1.0 与 Pwm_SetDuty 同量纲，见 Modules 规划 §3.1】 | bsp_pwm + bsp_gpio |
 | Modules/servo | 舵机 ×4（TIM5 四通道全启用） | `Servo_SetAngle(id,deg)`（软限位）/ `Servo_Release(id)`（停脉冲=卸力） | bsp_pwm |
 | Modules/power | 功率采样 | `Power_GetVoltage/Current/Power`（窗口均值）/ `Joint_GetCurrent(k)` | bsp_adc |
 | Modules/oled | SSD1306 | `Oled_Init` / `Oled_Printf(x,y,...)` / `Oled_Refresh` | bsp_iic |

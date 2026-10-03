@@ -61,7 +61,9 @@ S2 三处修复全部是"凭直觉写位域/命令"所致，LA 抓 MOSI 波形�
 ```c
 typedef enum { MOTOR_CH1 = 0, MOTOR_CH2, MOTOR_CH3, MOTOR_CH4, MOTOR_CH_COUNT } MotorCh_t;
 bool Motor_Init(void);                           /* STBY 保持低（上电安全），装配方 PID（W2） */
-void Motor_SetDuty(MotorCh_t ch, int16_t duty);  /* -1000..+1000，符号即方向；先写 DIR 后写 PWM */
+void Motor_SetDuty(MotorCh_t ch, float duty);    /* -1.0..+1.0，符号即方向；先写 DIR 后写 PWM；NaN 滑行
+                                                  * 【2026-10-03 变更】int16±1000→float：与 Pwm_SetDuty 同量纲，
+                                                  * 速度环 MaxOut(1.0f) 直喂零换算 */
 void Motor_Enable(void);                         /* STBY 拉高 */
 void Motor_Disable(void);                        /* duty=0 + STBY 拉低，双保险 */
 /* —— W2 速度环（algorithm 就绪后）—— */
@@ -71,7 +73,7 @@ float Motor_GetSpeedRpm(MotorCh_t ch);           /* Encoder_Read × ROBOT_ENC_PP
 
 **实现要点**：① 符号→方向映射在本层（BSP 的 PWM 不知方向），真值表按手册：IN1=1/IN2=0 正转、0/1 反转、0/0 滑行、1/1 短刹——写进《spec 对照清单》；② **同边沿切换**：改向时先置新方向再给 PWM，杜绝共导通；③ 死区 `ROBOT_MOTOR_DEADBAND`（占位，实测补）；④ 轮向修正 `ROBOT_MOTOR_SIGN`——**电机序号硬件未定**，通道→(PWM ch, DIR 引脚对) 映射表收进 robot_config.h 一处改；⑤ Disable 必须 duty=0 + STBY 低同时做。
 
-**验收（S5）**：四路开环正反转（duty 阶梯 200/500/1000），方向与编码器计数符号交叉验证；Disable 后手转轮无阻力矩（STBY 断）。测试台 **6=MOTOR**。
+**验收（S5）**：四路开环正反转（duty 阶梯 200/500/1000；【2026-10-03】float 化后为 0.2/0.5/1.0），方向与编码器计数符号交叉验证；Disable 后手转轮无阻力矩（STBY 断）。测试台 **6=MOTOR**。
 
 ### 3.2 servo —— 舵机 ×4（S5，器件层）
 
@@ -91,8 +93,12 @@ typedef enum { SERVO_ID1 = 0, SERVO_ID2, SERVO_ID3, SERVO_ID4, SERVO_COUNT } Ser
  * 按构型：ID1=大臂(数字) ID2=小臂(数字) ID3=手腕(SG90) ID4=爪子(SG90)——以实机布线为准 */
 bool Servo_InitAll(void);                        /* 数字舵机发一次目标脉冲；SG90 发中位脉冲 300ms 再可控 */
 void Servo_SetAngle(ServoId_t id, float deg);    /* 0..180；软限位钳位后 deg→us 换算（每 id 独立标定） */
-void Servo_Release(ServoId_t id);                /* SG90：停脉冲=真卸力；数字舵机：停脉冲=锁存不变（见上表） */
-bool Servo_ReleaseCutsPower(ServoId_t id);       /* 能力查询：该 id 的 Release 是否真卸力（actuator 装配用） */
+bool Servo_Release(ServoId_t id);                /* 返回=本次是否真卸力【2026-10-03 变更 void→bool】；
+                                                  * SG90：停脉冲=真卸力；数字舵机：停脉冲=锁存不变（见上表） */
+bool Servo_CanUnload(ServoId_t id);              /* 能力查询：该 id 软件能否卸力（actuator 装配用，无副作用）。
+                                                  * 【2026-10-03 改名】ReleaseCutsPower→CanUnload：语义从"切断供电"
+                                                  * 实现细节上移为"软件卸力能力"；不合并进 Release（装配期查询必须
+                                                  * 无副作用，且器件解释权收在 servo 一处） */
 ```
 
 **实现要点**：① 脉宽↔角度线性映射按每 id 独立标定（`ROBOT_SERVO_PULSE_MIN/MAX_US[id]`）——PM10S 标称 0.5~2.5ms、SG90 标称 500~2500µs 但实际行程普遍不足 180°，**全部待实机标定**；② 软限位每关节独立（`ROBOT_SERVO_LIMIT[SERVO_COUNT][2]`，占位 ±5° 待结构定）；③ 四通道持续 50Hz 发脉冲（SG90 必需，数字舵机无害且行为统一），`Pwm_Release` 仅用于 SG90 卸力与全关断；④ Init 的"中位 300ms"与 bsp_pwm 的"上电 0 脉宽"构成两级安全链；⑤ S5 开工时同步 `robot_config.h` 的 `ROBOT_SERVO_COUNT` 3→4 并填器件分型表。
@@ -151,7 +157,7 @@ HOLDING --供电累计超限（仅 SG90）--> 置 NeedsCooldown（软模式：gr
 
 **爪子器件定案（2026-10-01，与结构组确认）：SG90，360° 速度模式方案作废**——四路舵机全部位置模式，`Servo_SetAngle`/actuator 角度斜坡全链适用，servo.h **S5 验收即冻结**（无悬案）。
 
-**实现要点**：① 状态机、判据、累计器全在 `Act_Update` 节拍内闭环，不经 daemon；② 电流获取走**依赖注入**（config 函数指针），actuator 不知道 power 存在——不新增第二个模块间 include 例外，PC 单测可注入模拟电流源；③ 实例的器件能力经 `Servo_ReleaseCutsPower(id)` 查询（actuator→servo 唯一登记例外内的合法调用），Release 分支按能力表走；④ 实例由 grab_task 持有（静态 4 份），斜坡/确认计时/累计器纯逻辑可 PC 单测；⑤ 滑动累计器：环形桶数组（30×1s 桶），Release/IDLE 期间不累加；用滑动窗口而非连续计时——堵转可"卡一下松一下"绕过连续计时器，滑动窗口里休息只能靠老桶出窗"还款"，歇不够就攒不回来；参数整定三步：数任务（比赛全序列最长连续出力秒数）→ 上限=任务极限×~1.3 → 实车重载全程验证不误触发（太小=运输途中被强制冷却掉矿，太大=堵转烧机前保护未到限）。
+**实现要点**：① 状态机、判据、累计器全在 `Act_Update` 节拍内闭环，不经 daemon；② 电流获取走**依赖注入**（config 函数指针），actuator 不知道 power 存在——不新增第二个模块间 include 例外，PC 单测可注入模拟电流源；③ 实例的器件能力经 `Servo_CanUnload(id)` 查询（actuator→servo 唯一登记例外内的合法调用；【2026-10-03 改名】原 ReleaseCutsPower），Release 分支按能力表走；④ 实例由 grab_task 持有（静态 4 份），斜坡/确认计时/累计器纯逻辑可 PC 单测；⑤ 滑动累计器：环形桶数组（30×1s 桶），Release/IDLE 期间不累加；用滑动窗口而非连续计时——堵转可"卡一下松一下"绕过连续计时器，滑动窗口里休息只能靠老桶出窗"还款"，歇不够就攒不回来；参数整定三步：数任务（比赛全序列最长连续出力秒数）→ 上限=任务极限×~1.3 → 实车重载全程验证不误触发（太小=运输途中被强制冷却掉矿，太大=堵转烧机前保护未到限）。
 
 **验收（W2.4）**：SetTarget 后斜坡走完转 HOLDING（示波器：SG90 通道脉冲从步进变恒定），SG90 正常保持永不被自动卸力；人为阻滞大臂（数字+电流）→ 超阈值持续 `stall_confirm_ms` 触发 `Act_IsStalled`+报警，瞬时冲击不误触发；人为制造爪子长供电 → `Act_NeedsCooldown` 置位且夹矿时不强制卸力（手腕实例热保护已禁用、全程保持不误报）；数字舵机 Release 后实测仍锁存（记录入验收日志）。测试台 **10=ACTUATOR**。
 ### 3.4 power —— 功率采样换算（S6，与 bsp_adc 同日接力）
@@ -306,6 +312,7 @@ bool RC_Cmd_GetCopy(RC_Cmd_t *out);        /* 唯一读法：关调度内 memcpy
 8. **SRAM 预算**：OLED 帧缓冲 1KB 为本层最大单项（§七），新增 ≥256B 缓冲先登记。
 9. **ISR 误用**：algorithm/actuator 一切函数禁止进 ISR（软浮点+状态机）；ISR 只 osSignalSet。
 10. **共地！！！**：舵机/电机大电流路径与信号地必须共点，驱动异常先查地再查码（继承 README 铁律）。
+11. **I²C2 预留插针（2026-10-01 硬件决策）**：PB10/PB11 总线上多留一组 4P 插针（3.3V/GND/SCL/SDA）作车端扩展槽——地址不冲突（OLED 0x3C vs IMU 0x68/0x6A/0x6B），插针上**不额外放上拉**（OLED 与 IMU 模块板载上拉并联即可，勿叠加第三个），电源引 3.3V 与 OLED 同域防混电平；**软件前提：S7 的 bsp_iic 必须地址参数化**——现有草案 `Iic_Write(buf,len)` 未带地址（隐含写死 OLED），须统一为 `Iic_Write/Read(addr,...)` 对称接口，作为 S7 验收点之一；杜邦线外接器件务必共地。
 
 ## 七、资源预算增量（基线：BSP 规划 §八，剩余 ≥22 KB）
 

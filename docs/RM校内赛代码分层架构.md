@@ -135,8 +135,8 @@ CubeMX 生成代码（Core/Drivers/Middlewares）+ 启动文件 + FreeRTOS 内�
 | 模块 | 状态 | 职责 | 对上接口 | 依赖 |
 | --- | --- | --- | --- | --- |
 | remote（+nrf24） | ✅S2 | nRF24 器件驱动 + 链路层：PRX/PTX 双模式、IRQ 服务、看门狗、诊断计数 | `Remote_Init(mode)` / `Remote_Service` / `Remote_ReadPacket` / `Remote_SendPacket` / `Remote_IsLinkUp` / GetRx·TxFailCount | bsp_spi, bsp_gpio, bsp_sys, cmsis_os（授权例外）；W2 增 RC_Cmd 协议层 |
-| motor | S5/W2 | TB6612 ×4：方向+STBY+duty 开环（S5）→ 速度环（W2，依赖 algorithm） | `Motor_SetDuty(ch,-1000..+1000)` / `Motor_Enable/Disable`；W2 加 `Motor_SetSpeedRpm/GetSpeedRpm` | bsp_pwm, bsp_gpio, bsp_encoder；速度环加 algorithm |
-| servo | S5 | 舵机 ×4 两类分型（大臂/小臂=数字 fail-hold：发一次锁存、停脉冲≠卸力；手腕/爪子=SG90 模拟：停脉冲=真卸力；爪子器件已定案 SG90，360° 方案作废）：脉宽↔角度、软限位、Release 能力表 | `Servo_InitAll/SetAngle/Release/ReleaseCutsPower` | bsp_pwm |
+| motor | S5/W2 | TB6612 ×4：方向+STBY+duty 开环（S5）→ 速度环（W2，依赖 algorithm） | `Motor_SetDuty(ch,±1.0f)`【2026-10-03 变更：原 ±1000 int16 → float，与 Pwm_SetDuty 同量纲】 / `Motor_Enable/Disable`；W2 加 `Motor_SetSpeedRpm/GetSpeedRpm` | bsp_pwm, bsp_gpio, bsp_encoder；速度环加 algorithm |
+| servo | S5 | 舵机 ×4 两类分型（大臂/小臂=数字 fail-hold：发一次锁存、停脉冲≠卸力；手腕/爪子=SG90 模拟：停脉冲=真卸力；爪子器件已定案 SG90，360° 方案作废）：脉宽↔角度、软限位、Release 能力表 | `Servo_InitAll/SetAngle/Release(返bool)/CanUnload`【2026-10-03 变更：ReleaseCutsPower→CanUnload，Release 返"本次是否真卸力"】 | bsp_pwm |
 | actuator | W2 | 执行器保护策略（**无位置反馈+器件分型+业务拍板**：数字大臂/小臂=电流判据触发即报警（fail-hold 软件无法卸力）；爪子 SG90=热保护→grab 拍板停脉冲；手腕全程保持=热保护禁用、仅报警兜底）：电流堵转/热保护/卸力/缓动恢复 | `Act_Init/SetTarget/Update/Release/IsSettled/IsStalled/NeedsCooldown` | **servo**（登记例外）, algorithm |
 | power | S6 | 功率采样换算：窗口均值 + 标定宏，换算点全系统唯一 | `Power_GetVoltage/Current/Power` / `Power_GetJointCurrent(k)` | bsp_adc |
 | algorithm | W2 | PID（**移植自 control-2026 controller，去 arm_math 适配**）/ 一阶低通 / 缓动轨迹 / clamp；纯 C 可 PC 单测 | 纯函数 | 无（PID 内部 dt 自算用 bsp_sys） |
@@ -207,7 +207,7 @@ uint32_t Remote_GetTxFailCount(void);
 
 ```c
 /* motor.h（原 dcmotor.h）—— W2 冻结；S5 先交付开环半（接口骨架，详见 Modules 规划 §3.1） */
-/* S5：Motor_Init / Motor_SetDuty(ch,-1000..+1000) / Motor_Enable / Motor_Disable        */
+/* S5：Motor_Init / Motor_SetDuty(ch,±1.0f) / Motor_Enable / Motor_Disable          */
 /* W2：Motor_SetSpeedRpm(ch,rpm) / Motor_GetSpeedRpm(ch)（内嵌 PID，algorithm 就绪后填） */
 ```
 

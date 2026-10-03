@@ -33,6 +33,7 @@
 #include "bsp_log.h"
 #include "bsp_encoder.h"
 #include "bsp_pwm.h"
+#include "bsp_adc.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -122,6 +123,8 @@ int main(void)
   Encoder_InitAll();
   /* S4: 启动 8 路 PWM 输出（compare 保持 CubeMX Pulse=0：duty 0 / 不发脉冲） */
   Pwm_InitAll();
+  /* S6: 启动 ADC1/2 双同步 DMA 循环采样（校准+丢前2窗）与 ADC3 单通道轮询配置 */
+  Adc_Init();
   /* USER CODE END 2 */
 
   /* Call init function for freertos objects (in cmsis_os2.c) */

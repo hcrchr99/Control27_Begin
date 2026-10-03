@@ -97,9 +97,23 @@
 
 /* 功率采样窗口均值样本数（bsp_adc 双同步循环缓冲内取窗）—— 待实测 */
 #define ROBOT_POWER_WINDOW          16
-/* ADC 原始值 -> 物理量换算系数（分压比 / 采样电阻）—— 待硬件实测 */
-#define ROBOT_POWER_V_K             1.0f
+/* ADC 原始值 -> 物理量换算系数（检录硬项唯一标定入口，Modules 规划 §3.4）。
+ * V_K 当前值 = 引脚级链路标定（2026-10-06，电源模块供电）：灌 PA5 多点线性
+ * 拟合残差 ±2mV 级，K 吸收链路增益。⚠ ADC 基准 = VDDA，随供电形态漂移——
+ * USB 供电时实测读数整体偏高且随时间增大（换电源模块后 0.9745→0.993 复准，
+ * BSP 坑 #13）：供电形态变更（含最终上电池）必须复标。分压电路就绪后 T3
+ * 对表更新：最终 V_K = 分压比 × 0.993，并更新标定日期 */
+#define ROBOT_POWER_V_K             0.993f
+/* 电流链路系数（PA4 电流采样运放）—— 待采样电路就绪后同法对表 */
 #define ROBOT_POWER_I_K             1.0f
+/* 关节电流路数（ADC3 IN12/IN13 两路，k=0 大臂 / k=1 小臂——器件归属仅注释，
+ * BSP 侧见 bsp_pin.h）。消费方 Modules/power → actuator（堵转判定注入） */
+#define ROBOT_POWER_JOINT_COUNT     2
+/* 关节电流换算系数（两路共用；若实测两路增益不同再拆为 _LIST）——
+ * 量程 0~3A 级采样电阻+运放方案待硬件定，先占位 */
+#define ROBOT_POWER_JOINT_I_K       1.0f
+/* ADC3 单次转换轮询超时（ms）：转换约 6µs，2ms 余量 ~300 倍 */
+#define ROBOT_ADC_TIMEOUT_MS        2
 
 /* ================================ Link =================================== */
 
@@ -111,7 +125,7 @@
 /* 板级测试台选择（取值见 Tests/test_bench.h 枚举）：0=关闭（业务固件常态，
  * 测试任务只打心跳+栈高水位）；新板 bring-up 时按依赖序逐项改选：
  * 1=GPIO(S1) 2=ENCODER(S3) 3=SPI(S2) 4=PWM(S4) 5=REMOTE(S2 链路收发)
- * 6=MOTOR(S5) 7=SERVO(S5)。激活时业务任务自动让位。 */
-#define ROBOT_TEST_BENCH            7
+ * 6=MOTOR(S5) 7=SERVO(S5) 8=POWER(S6)。激活时业务任务自动让位。 */
+#define ROBOT_TEST_BENCH            8
 
 #endif /* F103RC_ROBOT_CONFIG_H */

@@ -1,5 +1,5 @@
 ---
-title: RM校内赛代码分层架构 v1.1
+title: RM校内赛代码分层架构 v1.2
 ---
 
 > 配套《机甲夺矿》电控开发计划 v1.0。主控 STM32F103RCT6，血统：control-2026 四层架构。  
@@ -8,7 +8,9 @@ title: RM校内赛代码分层架构 v1.1
 > `bsp_dwt`→`bsp_sys`、`bsp_usart` 并入 `bsp_log`（UART4 纯中断）、TIM5×4、`robot_def.h` 职能
 > 由 `Bsp/robot_config.h` 与各模块头文件承接、**Tests/ 板级测试台纳入架构**、测试板 F103C8_PTX_T 验证一源两板（**遥控器整机 Remoter 独立立项，未生成**）；Modules 清单收敛（power/alarm 立项、dcmotor 更名
 > motor、actuator 依赖改 servo）；remote 标注实际冻结形态（字节流链路层，RC_Cmd 协议层移 W2）。
-> 实施层排期：姊妹篇《BSP层开发规划》v1.2（S0~S4 已验收）与《Modules层开发规划》v1.0（新增）。
+> 实施层排期：姊妹篇《BSP层开发规划》v1.3（S0~S7 已验收）与《Modules层开发规划》v1.0（新增）。
+> **v1.2 修订（2026-10-03）**：S7 结算——**L2 BSP 层 9/9 收官**（S6 bsp_adc / S7 bsp_iic 板上过验），
+> §3.2 状态表更新为实际冻结形态；L3 Modules oled 验收冻结（§3.3）。
 
 ## 〇、审视结论（先行）
 
@@ -48,10 +50,10 @@ flowchart TD
         B7["oled（S7）"]
         B8["alarm（W2 故障码声光）"]
     end
-    subgraph L2["Bsp 板级层 —— 只谈外设（S0~S4 已落地 7/9）"]
+    subgraph L2["Bsp 板级层 —— 只谈外设（S0~S7 已落地 9/9 收官）"]
         C1["bsp_sys / bsp_log / bsp_gpio"]
         C2["bsp_pwm / bsp_encoder / bsp_spi"]
-        C3["bsp_adc(S6) / bsp_iic(S7)"]
+        C3["bsp_adc ✅ / bsp_iic ✅"]
         C4["bsp_pin.h / robot_config.h"]
     end
     subgraph L1["Hardware 芯片层"]
@@ -111,7 +113,7 @@ CubeMX 生成代码（Core/Drivers/Middlewares）+ 启动文件 + FreeRTOS 内�
 
 ### 3.2 Bsp（板级支持）
 
-原则：最薄封装、一个外设一个模块、不知业务。所有引脚与重映射（含 TIM2 PartialRemap1、JTAG Disable、编码器 2 的 PA15/PB3）只允许出现在 bsp_pin.h。【v1.1 状态】S0~S4 七个模块验收通过，仅剩 bsp_adc（S6）与 bsp_iic（S7）；API 细节以《BSP层开发规划》§四为准，下表列实际冻结形态。
+原则：最薄封装、一个外设一个模块、不知业务。所有引脚与重映射（含 TIM2 PartialRemap1、JTAG Disable、编码器 2 的 PA15/PB3）只允许出现在 bsp_pin.h。【v1.2 状态】S0~S7 九个模块全部验收通过，**BSP 层收官**（2026-10-03 bsp_iic 板上过验）；API 细节以《BSP层开发规划》§四为准，下表列实际冻结形态。
 
 2026-09-26 勘误（ADC 触发方案，定稿方案 B）：F103 的 ADC1/2 规则组触发源（EXTSEL）仅有 T1_CC1/CC2/CC3、T2_CC2、T3_TRGO、T4_CC4、EXTI11（重映射后 = TIM8_TRGO）与软件启动，不含 TIM7 TRGO 档；且上述硬件触发源在本工程已被编码器（TIM1/2/3/8）、电机 PWM（TIM4_CC4）与按键（PA11 = EXTI11）全部占用。故 bsp_adc 定稿为：ADC1/2 双同步规则组 + 连续转换 + DMA1_Ch1 循环搬运，sense_task 随时读最新值、按固定样本数窗口平均；TIM7 保留为 1 kHz 通用节拍定时器（可选），不再承担 ADC 触发。详见工作区《Hardware代码审查报告.md》与《ADC方案B配置指南.md》。
 
@@ -125,8 +127,8 @@ CubeMX 生成代码（Core/Drivers/Middlewares）+ 启动文件 + FreeRTOS 内�
 | bsp_pwm | ✅S4 | TIM4×4（20kHz 电机）/ **TIM5×4**（50Hz 舵机，CH4 启用） | 统一通道号 `PWM_20K_CH1..4`(1..4) / `PWM_50HZ_CH1..4`(5..8)；`Pwm_SetDuty(ch, float 0..1)`（NaN/负值落安全态，防整数档量化损耗）/ `Pwm_SetPulseUs`（仅 50Hz 组，钳 0..20000us）/ `Pwm_Release`（compare=0，可直恢复）；Init 后 0 输出=上电安全链，不依赖上层调用顺序 |
 | bsp_encoder | ✅S3 | TIM1/2/3/8 编码器模式 | TIM2 部分重映射1 + SWJ 防御固化；16 位回绕差分扩展 int32；`Encoder_Read`（增量）/ `Encoder_GetCount`（累计） |
 | bsp_spi | ✅S2 | SPI2（PB13/14/15）→ nRF24L01，**4.5 MHz**（APB1 36M/8，09-29 勘误） | `Spi_Transfer/TransferByte`（10ms 超时）/ `Spi_Csn/Spi_Ce`（委托 bsp_gpio）/ `Spi_IsReady`；CSN/CE 时序知识归 Modules/remote |
-| bsp_adc | S6 | ADC1_IN4+ADC2_IN5 双同步 + ADC3_IN12/13 | DMA 32 位字拆分（低 16=ADC1 电流 / 高 16=ADC2 电压）；启动后丢前 2 窗口样本；窗口均值样本数进 robot_config.h |
-| bsp_iic | S7 | I2C2（PB10/PB11）100kHz → OLED | 读写带超时；连续失败触发总线恢复（DeInit→Init），禁止死等 |
+| bsp_adc | ✅S6 | ADC1_IN4+ADC2_IN5 双同步 + ADC3_IN12/13 | DMA 32 位字拆分（低 16=ADC1 电流 / 高 16=ADC2 电压）；启动后丢前 2 窗口样本；窗口均值样本数进 robot_config.h；从机触发链 EXTTRIG 运行期补位（HAL 缺口，坑 #11） |
+| bsp_iic | ✅S7 | I2C2（PB10/PB11）100kHz → OLED | **地址参数化对称接口** `Iic_Write/Read(addr7,...)` + Mem 变体 `Iic_WriteReg/ReadReg(addr7,reg,...)` + `Iic_IsDeviceReady`（addr 7 位入参内部左移）；全部带超时；连续失败 3 次触发总线恢复（DeInit→Init），禁止死等【2026-10-03 过验收官】 |
 
 ### 3.3 Modules（设备与算法）
 
@@ -140,7 +142,7 @@ CubeMX 生成代码（Core/Drivers/Middlewares）+ 启动文件 + FreeRTOS 内�
 | actuator | W2 | 执行器保护策略（**无位置反馈+器件分型+业务拍板**：数字大臂/小臂=电流判据触发即报警（fail-hold 软件无法卸力）；爪子 SG90=热保护→grab 拍板停脉冲；手腕全程保持=热保护禁用、仅报警兜底）：电流堵转/热保护/卸力/缓动恢复 | `Act_Init/SetTarget/Update/Release/IsSettled/IsStalled/NeedsCooldown` | **servo**（登记例外）, algorithm |
 | power | S6 | 功率采样换算：窗口均值 + 标定宏，换算点全系统唯一 | `Power_GetVoltage/Current/Power` / `Power_GetJointCurrent(k)` | bsp_adc |
 | algorithm | W2 | PID（**移植自 control-2026 controller，去 arm_math 适配**）/ 一阶低通 / 缓动轨迹 / clamp；纯 C 可 PC 单测 | 纯函数 | 无（PID 内部 dt 自算用 bsp_sys） |
-| oled | S7 | SSD1306 驱动与排版；功率/电压/电流/电量四项（检录项） | `Oled_Init` / `Oled_Printf(x,y,...)` / `Oled_Refresh` | bsp_iic |
+| oled | ✅S7 | SSD1306 驱动与排版；功率/电压/电流/电量四项（检录项）；afiskon/stm32-ssd1306 移植改造（MIT），手册对照清单落 oled.h 头部 | `Oled_Init` / `Oled_Printf(x,y,...)` / `Oled_Refresh`（连败自动重发 init 自愈） | bsp_iic |
 | alarm | W2 | 故障码 → 声光（蜂鸣器节奏 + LED 状态码），非阻塞 | `Alarm_Set(code)` / `Alarm_Poll` | bsp_gpio |
 
 ### 3.4 UserApp（应用）

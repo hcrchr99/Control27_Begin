@@ -1,12 +1,14 @@
 # 《机甲夺矿》BSP 层开发规划 v1.2
 
-> 上游文档：《RM校内赛代码分层架构》v1.1（2026-09-30 修订，承接原《RM校内赛开发规划》v1.0；遥控链路 09-27 已变更为 nRF24L01/SPI2）。
+> 上游文档：《RM校内赛代码分层架构》v1.2（v1.1 2026-09-30 修订，承接原《RM校内赛开发规划》v1.0；遥控链路 09-27 已变更为 nRF24L01/SPI2）。
 > 下游文档：《Modules层开发规划》v1.0（2026-09-30 新增，S5 起的 L3 排期与接口定稿）。
 > 本文档基线：Hardware/F103RC CubeMX 生成代码（CMake 工具链，2026-09-27 复核通过）。
 > **v1.1 修订（2026-09-27）**：BSP 只封装**片上外设**（PWM/编码器/ADC/UART/SPI/I²C/GPIO/EXTI/DWT）；
 > Motor/Servo/Power/OLED/Remote 等含"器件知识"的封装全部移入 Modules（对齐 control-2026 分层）。
 > **v1.2 修订（2026-09-30）**：新增第十节《Tests/ 板级测试台规范》——验收即测试项、常驻主干；
 > SPI2 频率勘误（4.5MHz）；bsp_pwm API 更新（duty 0.0~1.0f、TIM5×4）。
+> **v1.3 修订（2026-10-03）**：S7 结算——bsp_iic API 定稿勘误（§四 行125 原草案 Write 不带地址
+> → 对称地址参数化 + Mem 变体，Modules 坑#11 验收点）；坑 #10 已闭环 / 坑 #14 已决策；§六 S7 ✅。
 
 ## 一、BSP 层定位与边界
 
@@ -122,7 +124,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -T \"${CMAKE_CURRENT_LIST_
 | bsp_encoder | TIM1/2/3/8 | `Encoder_InitAll` / `Encoder_Read(ch)→int32 增量`（内部累计 16bit 溢出） | Modules: chassis |
 | bsp_adc | ADC1/2 DMA 循环 + ADC3 单通道轮询 | `Adc_Init`（幂等）/ `Adc_GetLatest(&pair)`（V/I 成对）/ `Adc_GetAvg(&pair)`（全窗均值）/ `Adc3_Read(ch)`（1..2）/ `Adc_IsReady` 【S6 定稿 2026-10-06】 | Modules: power |
 | bsp_spi | SPI2 全双工 | `Spi_Transfer(tx,rx,len)` / `Spi_Csn(on)` / `Spi_Ce(on)` | Modules: remote |
-| bsp_iic | I²C2 | `Iic_Write(buf,len)` / `Iic_Read(addr,buf,len)`（均带超时） | Modules: oled |
+| bsp_iic | I²C2 | `Iic_Write/Read(addr7,buf,len)` / `Iic_WriteReg/ReadReg(addr7,reg,buf,len)` / `Iic_IsDeviceReady(addr7)`（均带超时；addr 一律 7 位格式，内部左移为 HAL 8 位）【S7 定稿 2026-10-03——勘误原草案 `Iic_Write(buf,len)` 不带地址（Modules 坑#11 验收点）；Mem 变体的 reg 即 SSD1306 控制字节 0x00/0x40 与 IMU 寄存器指针】 | Modules: oled |
 
 **Modules 首批器件驱动（5 个，与 BSP 并行开发）：**
 
@@ -141,7 +143,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -T \"${CMAKE_CURRENT_LIST_
 3. **bsp_encoder**：16 位计数器读数差分处理回绕（`(int16_t)(now - last)`）；换算系数（线数×4、减速比）放 `robot_config.h`，BSP 只出原始增量。
 4. **bsp_adc**：双同步模式 DMA 一次写 32 位（低 16 位=ADC1 电流，高 16 位=ADC2 电压）；DMA 启动后**丢弃前 2 个窗口**的首批样本；窗口均值样本数放 `robot_config.h`。【S6 实施增补 2026-10-06】启动必须 `HAL_ADCEx_MultiModeStart_DMA`（普通 Start_DMA 多模式返回 HAL_ERROR）；从机触发链 HAL 无人配置，Init 内须补 EXTTRIG + 重跑 Init(CONT=ENABLE)（坑 #11/#12）；ADC3 因 F1 单 DR + 扫描 EOC 序列末置位降为单通道逐次读（2-rank 轮询取不到 rank1）。
 5. **bsp_log**：TX 用 `HAL_UART_Transmit_IT` 排队；RX 每字节中断搬进 256B 环形缓冲，`Log_Poll` 由低优先级任务每 ≥10ms 取；`fputc` 重定向使 `printf` 可用。
-6. **bsp_spi / bsp_iic**：全部带超时；CSN/CE 建立时间 ≥5µs 的时序由 Modules/remote 用 `Bsp_DelayUs` 控制；I²C 连续失败触发总线恢复（DeInit→Init）。
+6. **bsp_spi / bsp_iic**：全部带超时；CSN/CE 建立时间 ≥5µs 的时序由 Modules/remote 用 `Bsp_DelayUs` 控制；I²C 连续失败触发总线恢复（DeInit→Init）。【S7 实施增补 2026-10-03】连败阈值 `ROBOT_IIC_RECOVER_N=3`，恢复动作 `HAL_I2C_DeInit→HAL_I2C_Init`（Msp 层 CubeMX 已生成）；探测失败同计连败（不达阈值无副作用）；`Iic_GetRecoverCount` 诊断计数；I²C 无 HAL 缺口，.ioc 零改动、运行期零补位（对比 bsp_adc 的 EXTTRIG）。
 7. **Modules/motor**：`SetDuty` 内先写方向 GPIO 再写 PWM（同边沿切换防共导通）；`Motor_Disable` 必须同时 duty=0 + STBY 拉低；上电默认 Disable（CubeMX 已保证 STBY 复位电平低）。
 8. **Modules/servo**：50Hz/1000 步下 500~2500µs = 0~180°；`Init` 先发中位脉冲 300ms 再使能（防上电猛冲）；`Release` 停发 PWM 卸力（规划五.2 机制的硬件基础）。
 9. **Modules/remote**：nRF24 寄存器级完整实现（R/W_REGISTER、FLUSH_TX/RX、RF_SETUP、重传参数）；IRQ 经 `Exti_Attach` 回调里只清标志 + `osThreadNotify`，取包/解析在 remote_task；看门狗 300~500ms 在本层；**PTX/PRX 双模式**，发送端（测试板 F103C8_PTX_T 及未来遥控器整机）直接复用。
@@ -170,7 +172,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -T \"${CMAKE_CURRENT_LIST_
 | S4 | 提前完成 | ✅ bsp_pwm TIM4×4 20kHz / TIM5×4 50Hz（81f732c） | duty / 脉宽输出经示波器验证通过 |
 | S5 | 10/5（可提前） | Modules motor + servo | 四路开环正反转；舵机上电中位、0~180° 扫描、卸力/恢复（接口定稿见 Modules 规划 §3.1/3.2） |
 | S6 | 10/6 | ✅ bsp_adc + Modules/power（2026-10-06 板上过验） | 串口打印 V/I 对表过验（V_K=0.993@电源模块供电）；T0 循环/T1 字序/T2 丢窗/T5 ADC3 双通道全过；T3 电池分压对表/T4 同步性/T6 关节标定待采样电路上板（§3.4 结算） |
-| S7 | 10/7 | bsp_iic + Modules/oled | OLED 显示电压/电流/任务心跳（§3.5） |
+| S7 | 10/7 | ✅ bsp_iic + Modules/oled（2026-10-03 板上过验） | 四项显示对表（V/I/P 整型 + LINK=DOWN 属预期，remote 本测试不初始化）无花屏/拖影；T3 拔插自愈过验（连败恢复 + OLED 连败 5 次自动重发 init）；T4 地址参数化 0x3C ACK/0x68 无 ACK；KEY1 图形演示页（§3.5 结算） |
 
 W2 剩余时间（10/8~10/9）做 BSP+Modules 全量回归（测试台编号逐项重跑，编号分配见 Modules 规划 §四）；交接口——速度环、RC_Cmd 遥控协议层、actuator、alarm——见《Modules层开发规划.md》§3.7/3.8/3.3/3.6。
 
@@ -187,11 +189,11 @@ W2 剩余时间（10/8~10/9）做 BSP+Modules 全量回归（测试台编号逐�
 7. **新加 remap 必补 SWJ 防御**：任何 F1 remap 组合之后补 `__HAL_AFIO_REMAP_SWJ_NOJTAG()`（现有 TIM2 已带）。
 8. **编码器电平**：引脚配置为 NOPULL，若编码器是 5V 开漏输出，确认板上外部上拉存在（规划坑 #14）。
 9. **EXTI 共享中断线**：PC5 与 PA11/12 分属 EXTI9_5 / EXTI15_10 两条线，`HAL_GPIO_EXTI_IRQHandler` 自动判引脚，勿在回调里混判断逻辑。
-10. **I²C 挂死**：OLED 排线接触不良会把 I²C2 拉死，`bsp_iic` 必须带超时与总线恢复，不许无限等。
+10. **I²C 挂死**：OLED 排线接触不良会把 I²C2 拉死，`bsp_iic` 必须带超时与总线恢复，不许无限等。【2026-10-03 已闭环】S7 落地并板上过验：超时 20ms、连败 3 次 DeInit→Init；OLED 层另设连败 5 次自动重发 init（拔插排线=模块掉电，寄存器态全丢，仅恢复总线不重发 init 屏不亮）。
 11. **双同步从机触发链缺配① EXTTRIG**：F1 `HAL_ADC_Init` 有意不置 CR2.EXTTRIG（源码注释明说留给 Start_xxx），`HAL_ADCEx_MultiModeStart_DMA` 只置主机却注释称从机"已在 Init 完成"——从机须 `SET_BIT(EXTTRIG)`，否则永不触发、DR 高半字冻结（2026-10-06 实测恒 2000、PA5 接 GND/3.3V 均无反应）。
 12. **双同步从机触发链缺配② CONT**：从机 `ContinuousConvMode=DISABLE` 时主机 SWSTART 边沿只同步触发从机一拍即停（实测高半字冻在单次采样值 4091），从机必须与主机同为连续模式。【2026-10-06 勘误】CubeMX 界面**可配**从机 CONT（原工程漏配，非生成器限制）——已改 .ioc 源头生成 ENABLE；运行期必须补的只剩 EXTTRIG（坑 #11，HAL 缺口 CubeMX 填不了）。
 13. **ADC 基准=VDDA，随供电形态漂移**：USB 供电下 VDDA 下漂，同一电压读数整体偏高且随时间增大（实测增益 +2.6%→更大，反推 VDDA 3.21V→3.11V）；换电源模块供电后 V_K 0.9745→0.993 复准。链路级标定系数只在标定时的供电形态下有效——**供电形态变更（含最终上电池）必须复标**，这正是标定日期存在的意义。
-14. **newlib-nano 未启 `_printf_float`**：`%f` 板上打印失效（不报错、打空）——测试台/日志一律整型小数化打印（mV/mA/mW）；S7 OLED 若需 %f 须链接 `-u _printf_float`（flash +~8KB，届时决策）。
+14. **newlib-nano 未启 `_printf_float`**：`%f` 板上打印失效（不报错、打空）——测试台/日志一律整型小数化打印（mV/mA/mW）；S7 OLED 若需 %f 须链接 `-u _printf_float`（flash +~8KB，届时决策）。【2026-10-03 已决策】S7 OLED **不链** `-u _printf_float`——`Oled_Printf` 沿用整型小数化约定，flash 省 ~8KB。
 
 ## 八、资源预算（48KB SRAM）
 

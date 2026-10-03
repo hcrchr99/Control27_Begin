@@ -32,6 +32,10 @@ void Test_Pwm_Init(void);
 void Test_Pwm_Poll(void);
 void Test_Remote_Init(void);
 void Test_Remote_Poll(void);
+void Test_Motor_Init(void);
+void Test_Motor_Poll(void);
+void Test_Servo_Init(void);
+void Test_Servo_Poll(void);
 
 static const TestEntry_t s_table[] = {
     { TEST_BENCH_GPIO,    "gpio",    Test_Gpio_Init,    Test_Gpio_Poll    },
@@ -39,6 +43,8 @@ static const TestEntry_t s_table[] = {
     { TEST_BENCH_SPI,     "spi",     Test_Spi_Init,     Test_Spi_Poll     },
     { TEST_BENCH_PWM,     "pwm",     Test_Pwm_Init,     Test_Pwm_Poll     },
     { TEST_BENCH_REMOTE,  "remote",  Test_Remote_Init,  Test_Remote_Poll  },
+    { TEST_BENCH_MOTOR,   "motor",   Test_Motor_Init,   Test_Motor_Poll   },
+    { TEST_BENCH_SERVO,   "servo",   Test_Servo_Init,   Test_Servo_Poll   },
 };
 
 bool TestBench_Active(void)

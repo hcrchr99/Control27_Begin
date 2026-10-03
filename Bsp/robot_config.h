@@ -22,13 +22,42 @@
 #define ROBOT_ENC_PPR               (1024 * 4 * 1)
 /* 输出满占空比对应 -1000..+1000 的符号约定与轮向修正 —— 待整车联调 */
 #define ROBOT_MOTOR_SIGN            1
+/* 死区：|duty| 低于此值按 0 处理（占空比小数量纲 -1.0..+1.0；占位，开环实测后填） */
+#define ROBOT_MOTOR_DEADBAND        0.0f
+/* 通道映射表（2026-10-02 布线未定，按序号直连占位）：
+ * MOTOR_CHx → { PWM 通道号, DIR 引脚对序号 }。
+ * PWM 通道号 = bsp_pwm.h 的 PWM_20K_CH1..4（1..4）；DIR 序号 1..4 =
+ * bsp_pin.h 的 PIN_DIRxA/PIN_DIRxB 引脚对。布线定案后只改此处，代码零改动 */
+#define ROBOT_MOTOR_CH1_PWM         1
+#define ROBOT_MOTOR_CH1_DIR         1
+#define ROBOT_MOTOR_CH2_PWM         2
+#define ROBOT_MOTOR_CH2_DIR         2
+#define ROBOT_MOTOR_CH3_PWM         3
+#define ROBOT_MOTOR_CH3_DIR         3
+#define ROBOT_MOTOR_CH4_PWM         4
+#define ROBOT_MOTOR_CH4_DIR         4
 
 /* ================================ Servo ================================== */
 
-#define ROBOT_SERVO_COUNT           3
-/* 50Hz / 1000 step 下 500~2500us = 0~180 度，软限位留边 —— 待硬件实测 */
-#define ROBOT_SERVO_PULSE_MIN_US    500
-#define ROBOT_SERVO_PULSE_MAX_US    2500
+/* 构型定案（2026-10-01，Modules 规划 §3.2）：ID1=大臂 ID2=小臂 = 数字舵机
+ * （PM10S 级，fail-hold：停脉冲≠卸力）；ID3=手腕 ID4=爪子 = SG90
+ * （停脉冲=真卸力）—— id↔关节↔通道 以实机布线为准 */
+#define ROBOT_SERVO_COUNT           4
+/* 器件分型位表（1=数字 fail-hold / 0=SG90），顺序 ID1..ID4 */
+#define ROBOT_SERVO_DIGITAL_LIST    { 1, 1, 0, 0 }
+/* 通道映射：SERVO_IDx → bsp_pwm 50Hz 通道号（PWM_50HZ_CH1..4 = 5..8，
+ * 见 bsp_pwm.h）。布线未定按序号直连占位；定案后只改此处 */
+#define ROBOT_SERVO_PWM_CH_LIST     { 5, 6, 7, 8 }
+/* 每 id 脉宽标定（µs，0..180° 线性映射两端）：标称 500~2500 占位，实机标定
+ * 后填（PM10S 标称 0.5~2.5ms；SG90 实际行程普遍不足 180°）—— 不留"待实测"过夜 */
+#define ROBOT_SERVO_PULSE_MIN_US_LIST   { 500, 500, 500, 500 }
+#define ROBOT_SERVO_PULSE_MAX_US_LIST   { 2500, 2500, 2500, 2500 }
+/* 每 id 软限位（0..180° 坐标系，占位 ±5° 收边）—— 待结构定机械限位后收紧 */
+#define ROBOT_SERVO_LIMIT_MIN_DEG_LIST  { 5.0f, 5.0f, 5.0f, 5.0f }
+#define ROBOT_SERVO_LIMIT_MAX_DEG_LIST  { 175.0f, 175.0f, 175.0f, 175.0f }
+/* Init 中位稳定窗：发中位脉冲后经此时长 SetAngle 方生效（上电猛冲防护，
+ * 非阻塞计时，与 bsp_pwm"上电 0 脉宽"构成两级安全链） */
+#define ROBOT_SERVO_CENTER_SETTLE_MS    300
 
 /* ================================== SPI =================================== */
 
@@ -81,7 +110,8 @@
 
 /* 板级测试台选择（取值见 Tests/test_bench.h 枚举）：0=关闭（业务固件常态，
  * 测试任务只打心跳+栈高水位）；新板 bring-up 时按依赖序逐项改选：
- * 1=GPIO(S1) 2=ENCODER(S3) 3=SPI(S2) 4=PWM(S4) 5=REMOTE(S2 链路收发)。激活时业务任务自动让位。 */
-#define ROBOT_TEST_BENCH            0
+ * 1=GPIO(S1) 2=ENCODER(S3) 3=SPI(S2) 4=PWM(S4) 5=REMOTE(S2 链路收发)
+ * 6=MOTOR(S5) 7=SERVO(S5)。激活时业务任务自动让位。 */
+#define ROBOT_TEST_BENCH            7
 
 #endif /* F103RC_ROBOT_CONFIG_H */

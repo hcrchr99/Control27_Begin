@@ -120,7 +120,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -T \"${CMAKE_CURRENT_LIST_
 | bsp_gpio | GPIO 读写 + EXTI 注册 | `Gpio_Write(pin,on)` / `Gpio_Read(pin)` / `Exti_Attach(line,cb)` | Modules 各器件 |
 | bsp_pwm | TIM4 CH1-4（20kHz）、TIM5 CH1-4（50Hz） | `Pwm_SetDuty(ch, 0.0f..1.0f)`（<0 钳 0，按各通道所属 TIM 的 ARR 查表换算）/ `Pwm_SetPulseUs(ch,us)`（仅 50Hz 组，BSP 钳 0..20000us）/ `Pwm_Release(ch)` | Modules: motor/servo |
 | bsp_encoder | TIM1/2/3/8 | `Encoder_InitAll` / `Encoder_Read(ch)→int32 增量`（内部累计 16bit 溢出） | Modules: chassis |
-| bsp_adc | ADC1/2 DMA 循环 + ADC3 扫描 | `Adc_GetLatest(&vi)`（V/I 成对）/ `Adc3_Read(ch)` | Modules: power |
+| bsp_adc | ADC1/2 DMA 循环 + ADC3 单通道轮询 | `Adc_Init`（幂等）/ `Adc_GetLatest(&pair)`（V/I 成对）/ `Adc_GetAvg(&pair)`（全窗均值）/ `Adc3_Read(ch)`（1..2）/ `Adc_IsReady` 【S6 定稿 2026-10-06】 | Modules: power |
 | bsp_spi | SPI2 全双工 | `Spi_Transfer(tx,rx,len)` / `Spi_Csn(on)` / `Spi_Ce(on)` | Modules: remote |
 | bsp_iic | I²C2 | `Iic_Write(buf,len)` / `Iic_Read(addr,buf,len)`（均带超时） | Modules: oled |
 
@@ -139,7 +139,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -T \"${CMAKE_CURRENT_LIST_
 1. **bsp_pwm**：纯片上接口，不知道"电机/舵机"为何物；TIM5 每 step=20µs；Init 后默认 duty=0 / 0 脉宽（不发脉冲=卸力；上电安全链的片上部分，不依赖上层调用顺序；舵机中位脉冲由 Modules/servo 的 Init 发，500~2500µs 量程是舵机知识不进 BSP）。v1.2 勘误（2026-09-30）：SetDuty 契约由 -1000..+1000 改为 float 0.0..1.0（负值钳 0 失安全；原整数档在 ARR=3599 下每档 3.6 CCR 有量化损耗）；TIM5 CH4 已确认启用，由 ×3 改 ×4。
 2. **bsp_gpio / EXTI**：LED、蜂鸣器、按键、CSN/CE 都是普通 GPIO；`Exti_Attach(line, cb)` 注册的回调运行在 ISR 上下文，只允许置标志 / `osThreadNotify`。
 3. **bsp_encoder**：16 位计数器读数差分处理回绕（`(int16_t)(now - last)`）；换算系数（线数×4、减速比）放 `robot_config.h`，BSP 只出原始增量。
-4. **bsp_adc**：双同步模式 DMA 一次写 32 位（低 16 位=ADC1 电流，高 16 位=ADC2 电压）；DMA 启动后**丢弃前 2 个窗口**的首批样本；窗口均值样本数放 `robot_config.h`。
+4. **bsp_adc**：双同步模式 DMA 一次写 32 位（低 16 位=ADC1 电流，高 16 位=ADC2 电压）；DMA 启动后**丢弃前 2 个窗口**的首批样本；窗口均值样本数放 `robot_config.h`。【S6 实施增补 2026-10-06】启动必须 `HAL_ADCEx_MultiModeStart_DMA`（普通 Start_DMA 多模式返回 HAL_ERROR）；从机触发链 HAL 无人配置，Init 内须补 EXTTRIG + 重跑 Init(CONT=ENABLE)（坑 #11/#12）；ADC3 因 F1 单 DR + 扫描 EOC 序列末置位降为单通道逐次读（2-rank 轮询取不到 rank1）。
 5. **bsp_log**：TX 用 `HAL_UART_Transmit_IT` 排队；RX 每字节中断搬进 256B 环形缓冲，`Log_Poll` 由低优先级任务每 ≥10ms 取；`fputc` 重定向使 `printf` 可用。
 6. **bsp_spi / bsp_iic**：全部带超时；CSN/CE 建立时间 ≥5µs 的时序由 Modules/remote 用 `Bsp_DelayUs` 控制；I²C 连续失败触发总线恢复（DeInit→Init）。
 7. **Modules/motor**：`SetDuty` 内先写方向 GPIO 再写 PWM（同边沿切换防共导通）；`Motor_Disable` 必须同时 duty=0 + STBY 拉低；上电默认 Disable（CubeMX 已保证 STBY 复位电平低）。
@@ -169,7 +169,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -T \"${CMAKE_CURRENT_LIST_
 | S3 | 提前完成 | ✅ bsp_encoder ×4（bb35b3b） | 手转四轮：计数连续、换向符号正确、无跳变 |
 | S4 | 提前完成 | ✅ bsp_pwm TIM4×4 20kHz / TIM5×4 50Hz（81f732c） | duty / 脉宽输出经示波器验证通过 |
 | S5 | 10/5（可提前） | Modules motor + servo | 四路开环正反转；舵机上电中位、0~180° 扫描、卸力/恢复（接口定稿见 Modules 规划 §3.1/3.2） |
-| S6 | 10/6 | bsp_adc + Modules/power | 串口打印 V/I，与万用表误差 <5%，双 ADC 同步性验证（§3.4） |
+| S6 | 10/6 | ✅ bsp_adc + Modules/power（2026-10-06 板上过验） | 串口打印 V/I 对表过验（V_K=0.993@电源模块供电）；T0 循环/T1 字序/T2 丢窗/T5 ADC3 双通道全过；T3 电池分压对表/T4 同步性/T6 关节标定待采样电路上板（§3.4 结算） |
 | S7 | 10/7 | bsp_iic + Modules/oled | OLED 显示电压/电流/任务心跳（§3.5） |
 
 W2 剩余时间（10/8~10/9）做 BSP+Modules 全量回归（测试台编号逐项重跑，编号分配见 Modules 规划 §四）；交接口——速度环、RC_Cmd 遥控协议层、actuator、alarm——见《Modules层开发规划.md》§3.7/3.8/3.3/3.6。
@@ -188,13 +188,17 @@ W2 剩余时间（10/8~10/9）做 BSP+Modules 全量回归（测试台编号逐�
 8. **编码器电平**：引脚配置为 NOPULL，若编码器是 5V 开漏输出，确认板上外部上拉存在（规划坑 #14）。
 9. **EXTI 共享中断线**：PC5 与 PA11/12 分属 EXTI9_5 / EXTI15_10 两条线，`HAL_GPIO_EXTI_IRQHandler` 自动判引脚，勿在回调里混判断逻辑。
 10. **I²C 挂死**：OLED 排线接触不良会把 I²C2 拉死，`bsp_iic` 必须带超时与总线恢复，不许无限等。
+11. **双同步从机触发链缺配① EXTTRIG**：F1 `HAL_ADC_Init` 有意不置 CR2.EXTTRIG（源码注释明说留给 Start_xxx），`HAL_ADCEx_MultiModeStart_DMA` 只置主机却注释称从机"已在 Init 完成"——从机须 `SET_BIT(EXTTRIG)`，否则永不触发、DR 高半字冻结（2026-10-06 实测恒 2000、PA5 接 GND/3.3V 均无反应）。
+12. **双同步从机触发链缺配② CONT**：CubeMX 给从机生成 `ContinuousConvMode=DISABLE`（.ioc 无此项），主机连续自触发只经 SWSTART 边沿同步触发从机一拍即停（实测高半字冻在单次采样值 4091）——从机重跑 `HAL_ADC_Init(CONT=ENABLE)`，且 SET_BIT(EXTTRIG) 必须在重跑之后（Init 会清 EXTTRIG）。
+13. **ADC 基准=VDDA，随供电形态漂移**：USB 供电下 VDDA 下漂，同一电压读数整体偏高且随时间增大（实测增益 +2.6%→更大，反推 VDDA 3.21V→3.11V）；换电源模块供电后 V_K 0.9745→0.993 复准。链路级标定系数只在标定时的供电形态下有效——**供电形态变更（含最终上电池）必须复标**，这正是标定日期存在的意义。
+14. **newlib-nano 未启 `_printf_float`**：`%f` 板上打印失效（不报错、打空）——测试台/日志一律整型小数化打印（mV/mA/mW）；S7 OLED 若需 %f 须链接 `-u _printf_float`（flash +~8KB，届时决策）。
 
 ## 八、资源预算（48KB SRAM）
 
 | 项 | 占用 | 说明 |
 | --- | --- | --- |
 | FreeRTOS 堆 | 20 KB | 已含 5 任务栈约 9.5 KB（word 计） |
-| ADC DMA 缓冲 | 1 KB | 256 对样本 ×4B（uint32） |
+| ADC DMA 缓冲 | 64 B | 16 对样本（ROBOT_POWER_WINDOW）×4B（uint32）【S6 实际值 2026-10-06，原 256 对估算作废】 |
 | 日志环形缓冲 | 0.5 KB | 256B RX + TX 队列 |
 | OLED 帧缓冲 | 1 KB | 128×64/8 |
 | 全局结构 + 栈余量 | ~2 KB | RC_Cmd、Actuator 实例等 |
@@ -248,6 +252,8 @@ Flash：HAL + FreeRTOS 约 30KB 起，RCT6 256KB 充足，无需关注。
 - **判据写"总线存活"而非"出厂状态"**：模块 VCC 不随 MCU 复位掉电，复位后读到残留状态（如 nRF24 RX_DR=0x40）不是故障；只有全 0x00/0xFF 才是总线死。参考 `test_remote.c` 的 A1 三分支打日志；
 - 共享外设的测试项与业务项互斥靠 `TestBench_Yield`，勿自行加锁；
 - 测试打印走 `Log_Printf`（UART4 队列满丢弃不阻塞），高频逐包打印仅限排障期，常态用 1s 统计行；
+- **测试台交互输入（按键/开关）必须在 10ms Poll 节拍内采样**：放进打印节拍门内会把消抖倍化成打印周期（S6 实测 3×500ms≈1.5s 长按才响应，用户体感抓出）；
+- **测试打印禁用 `%f`**（newlib-nano 未启 `_printf_float`，坑 #14）：整型小数化打印（mV/mA/mW），链路精度不受影响；
 - 新板 bring-up 顺序即枚举顺序：NONE 心跳 → GPIO → ENCODER → SPI → REMOTE → 后续 PWM/ADC/I2C。
 
 编制日期：2026-09-27 | 基线：Hardware/F103RC 已复核代码 | 上游：《RM校内赛代码分层架构》v1.1

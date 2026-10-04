@@ -1,4 +1,4 @@
-# 《机甲夺矿》Modules 层开发规划 v1.0
+# 《机甲夺矿》Modules 层开发规划 v1.1
 
 > 上游：《RM校内赛代码分层架构》v1.1（2026-09-30 修订，L3 清单与接口定稿的裁决记录在案）。  
 > 姊妹篇：《BSP层开发规划》v1.2（S0~S4 已验收；测试台规范见其 §十，**本文所有验收均按该规范登记测试台**）。  
@@ -248,6 +248,7 @@ float Ease_Step(float cur, float target, float max_step); /* 限速斜坡：actu
 
 - **麦轮逆解（vx/vy/omega → 4×轮速）归 UserApp/chassis**，不进本模块——它与遥控指令映射、速度限幅、死区、旋转中心手感**一体调参**，是底盘应用的有机部分（对齐 control-2026 chassis 传统，架构 3.3"麦轮正逆解不在此层"即此意）；数据流：`RC_Cmd_GetCopy` 快照 → 麦轮逆解纯公式 → 4×目标轮速 → `Motor_SetSpeedRpm`。公式本身只是线性组合，真正的工作量在参数整定——这正是它长在应用层的证据。
 - **机械臂 IK 暂不启用**（2026-10-01 用户拍板）：架构 §八预埋决策不变——若启用放本模块（纯几何函数 `ArmIk_Solve2R`，臂长/限位参数化进 robot_config.h，PC 单测后 grab 调用），届时 grab 的目标源可从示教姿态表无痛切换，`Act_SetTarget` 接口不变。启用前本模块不含任何 IK 代码。
+  【2026-10-04 更新】机械臂构型定案（装配体 STEP 解析：平面 3R，见 §3.9），爪尖直线运动需求明确，IK 启用决策推进——**独立为 §3.9 kinematics**，原 `ArmIk_Solve2R` 命名与落点并入该节；本模块维持不含 IK 代码，依赖关系不变（kinematics 与本模块同为纯函数库，grab 编排上浮）。
 
 **实现要点**：① 纯 C 无硬件依赖（除 PID 内部时间戳走 bsp_sys 外不 include 任何 bsp/cmsis），可 host 编译 PC 单测（出错边界：dt=0、err 跳变、积分饱和、堵转计数溢出）；② 不占测试台编号（PC 单测），上板行为随 6=MOTOR（速度环）与 10=ACTUATOR（ease）间接验证；③ F103 无 FPU，float 为软浮点——控制环 1kHz 内开销可忽略（S4 已验证同类用法），但禁止在 ISR 用。
 
@@ -282,6 +283,39 @@ bool RC_Cmd_GetCopy(RC_Cmd_t *out);        /* 唯一读法：关调度内 memcpy
 
 **验收（W2.2）**：双板走通"摇杆→RC_Cmd 快照"全链路；estop 帧 ≤50ms 生效零输出；停发 400ms 内 valid=false 且指令向零衰减。测试台 **11=RC_CMD**。
 
+### 3.9 kinematics —— 机械臂平面运动学（2026-10-04 新增构想，机械臂硬件落地后实施）
+
+> **归属变更记录**：架构 §八与 §3.7 原裁决"IK 暂不启用（2026-10-01）"，2026-10-04 构型定案后升级为独立小节；纪律沿用 algorithm 同款——纯函数、零硬件依赖、PC 单测先行，API 未冻结（本节为构想，实机对表后定稿）。
+>
+> **构型依据（2026-10-04 装配体arm.STEP 解析）**：平面 3R——肩/肘（PM10S 数字，§3.2 分型）+ 腕（SG90），**无底盘回转**；三关节轴平行于开合方向 Y，臂运动面 = XZ 竖直平面；爪两指沿 Y 开合、⟂ 臂面 → "垂直于开合方向的直线"（水平进给/竖直下压）天然落在 3R 工作平面内，**平面逆解即可，无空间联动需求**。杆长初值 L1≈160 / L2≈90 / L3（腕→爪尖）≈70 mm，以 STEP 精提 + 实机标定为准。
+
+```c
+typedef struct {
+    float l1_mm, l2_mm, l3_mm;         /* 大臂/小臂/腕→爪尖，实机标定覆盖 STEP 初值 */
+    float j_min_deg[3], j_max_deg[3];  /* 三关节软限位；肘上限避开伸直（<175°） */
+    float elbow_margin_deg;            /* 奇异裕度：肘伸直侧保留 15~20° */
+    float step_mm;                     /* 直线插补步长，初值 3mm */
+} KinConfig_t;
+
+typedef struct {                       /* 直线插补状态机（grab 持有，静态一份） */
+    float x0, z0, dx, dz, pitch_deg;   /* 起点与方向向量（已归一） */
+    float len_mm, done_mm;             /* 总长与已走长 */
+    bool  active;
+} KinLine_t;
+
+bool Kin_Init(const KinConfig_t *cfg);                 /* 参数源 robot_config.h Kin 组 */
+bool Kin_LineStart(KinLine_t *ln, float x0, float z0,
+                   float x1, float z1, float pitch_deg); /* 全线逆解预扫，任一点奇异/越限
+                                                          * → false 拒绝，不启动半截轨迹 */
+bool Kin_LineStep(KinLine_t *ln, float j_deg[3]);       /* 每 10~20ms 节拍推进一步：
+                                                         * 输出 [肩,肘,腕] 目标角；走完 false */
+```
+
+**实现要点**：① 器件无关，只出三关节目标角，**唯一消费者 grab_task**：`Kin_LineStep` 产点 → `Act_SetTarget`；本模块不 include servo/actuator（零新增模块间 include 例外，与 §3.7 归属裁决一致）；② **时间维归属**：直线模式下插补节拍是时间主人，actuator 的 ease_dps 必须设高于插补峰值角速度（`Kin_LineStart` 时校验 |Δθ|max/节拍，违例报警拒绝）——双重斜坡叠加 = 轨迹滞后变形，这是本模块与 actuator 唯一的耦合纪律；③ F103 软浮点：sinf/cosf/atan2f 每点百 μs 级，10ms 节拍占比可忽略（S4 同类已验证），禁 ISR；④ **姿态扇区约束**：pitch 指令域钳位，保证腕补偿角（θw=−θ肩−θ肘+C）落在 SG90 可用区间——舵机选型结论（2026-10-04）：限臂姿态扇区优先于换 270° 舵机；⑤ 肘取单一弯折构型（不双解），工作区设计避开伸直奇异，拒绝比绕行可预期，**不做避奇异绕行**；⑥ 参数三级来源：STEP 实测（构型冻结）→ 装配实测（关节原点/中位 1500μs 对齐）→ 画线标定（有效杆长修正），全部进 robot_config.h，标定值+日期纪律同 Power 组。
+
+**验收构想**：PC 单测先行（host 编译）——FK↔IK 往返 |Δ|<0.1mm、限位钳位、奇异拒绝（伸直 ±margin）、全线预扫、插补终点收敛；上板（机械臂硬件到位后）——爪尖夹笔画线 100mm（水平进给/竖直下压两向），直尺比对偏移 ≤2mm（死区 0.4°×杆比 250mm 预算内），双向往返背隙记录在案。测试台 **12=KINEMATICS**（编号只增不改；此前仅 PC 单测，不占板）。
+
+
 ## 四、开发顺序（对齐 S5~S7 与 W2，实际进度超前可提前启动）
 
 | 阶段 | 窗口 | 内容 | 验收标准 | 测试台 |
@@ -294,12 +328,13 @@ bool RC_Cmd_GetCopy(RC_Cmd_t *out);        /* 唯一读法：关调度内 memcpy
 | W2.3 | 10/8 | motor 速度环 | 阶跃响应无超调振荡（整定记录进 robot_config.h 注释） | 随 6=MOTOR |
 | W2.4 | 10/9 | actuator + alarm | 限时/缓动/卸力时序正确；故障音型正确 | 10=ACTUATOR |
 | W2.5 | 10/9 | **全测试台回归**（编号 0~11 逐项重跑）+ 交接 UserApp | 全绿；chassis/grab 开跑 | 全部 |
+| W2+ | 待机械臂硬件 | kinematics（PC 单测可随 W2.1 先行；上板验收待实物+关节标定） | 逆解往返/奇异拒绝全过；画线 100mm 偏移 ≤2mm | 12=KINEMATICS |
 
 依赖链：algorithm →（速度环、actuator）；bsp_adc → power；bsp_iic → oled；S5 两模块仅依赖已验收 BSP，**可立即开工**。提交规范继承 BSP 规划 §六（每阶段 ≥1 次功能小提交、作者真名、message 注明验收结果）。
 
 ## 五、与 UserApp 的交接约定
 
-- **冻结时点表**：remote.h ✅已冻结 / motor·servo S5 验收即冻结 / power S6 / **oled ✅S7 冻结（2026-10-03，`Oled_Init` / `Oled_Printf(x,y,...)` / `Oled_Refresh` 只修 bug 不改签名）** / algorithm·rc_cmd W2.1~2.2 / actuator·alarm W2.4。冻结后只修 bug 不改签名，新需求走版本演进。
+- **冻结时点表**：remote.h ✅已冻结 / motor·servo S5 验收即冻结 / power S6 / **oled ✅S7 冻结（2026-10-03，`Oled_Init` / `Oled_Printf(x,y,...)` / `Oled_Refresh` 只修 bug 不改签名）** / algorithm·rc_cmd W2.1~2.2 / actuator·alarm W2.4 / kinematics 构想期（§3.9，API 实机对表后冻结）。冻结后只修 bug 不改签名，新需求走版本演进。
 - robot_config.h 填充责任：Motor 组（SIGN/DEADBAND/PPR 实测值）、Servo 组（**器件分型表 id↔关节↔型号** + 每 id 脉宽/限位实机值 + 数字舵机**堵转阈值 STALL_CURRENT_A / 确认时长 STALL_CONFIRM_MS** + SG90 **热保护 ENERGIZE_WINDOW_MS·ENERGIZE_MAX_MS·COOLDOWN_MS**）、Power 组（V_K/I_K 标定值+日期）、Link 组（帧布局）——各模块验收时**顺手填掉占位**，不留"待实测"过夜。
 - 麦轮正逆解、机构状态机、按键映射归 UserApp（chassis/grab），本层不预置任何业务概念；IK 启用时放 algorithm，grab 接口不变。
 - 遥控器整机 = `Hardware/Remoter` 独立 CubeMX 工程（**现仅 .ioc 未生成**，W2 生成后开工），按 F103C8_PTX_T 已验证的模式接入：独立工程 + `CONFIG_REMOTE_UNIT`，复用本层 remote/rc_cmd。**F103C8_PTX_T 是 nRF24 链路测试板（S2 遗产：双板联调/载波/频偏/角色互换诊断），不承担遥控器职能。**
@@ -317,6 +352,7 @@ bool RC_Cmd_GetCopy(RC_Cmd_t *out);        /* 唯一读法：关调度内 memcpy
 9. **ISR 误用**：algorithm/actuator 一切函数禁止进 ISR（软浮点+状态机）；ISR 只 osSignalSet。
 10. **共地！！！**：舵机/电机大电流路径与信号地必须共点，驱动异常先查地再查码（继承 README 铁律）。
 11. **I²C2 预留插针（2026-10-01 硬件决策）**：PB10/PB11 总线上多留一组 4P 插针（3.3V/GND/SCL/SDA）作车端扩展槽——地址不冲突（OLED 0x3C vs IMU 0x68/0x6A/0x6B），插针上**不额外放上拉**（OLED 与 IMU 模块板载上拉并联即可，勿叠加第三个），电源引 3.3V 与 OLED 同域防混电平；**软件前提：S7 的 bsp_iic 必须地址参数化**——现有草案 `Iic_Write(buf,len)` 未带地址（隐含写死 OLED），须统一为 `Iic_Write/Read(addr,...)` 对称接口，作为 S7 验收点之一；杜邦线外接器件务必共地。【2026-10-03 软件前提已落实】`Iic_Write/Read/WriteReg/ReadReg/IsDeviceReady` 全部 7 位地址入参定稿，T4 探测过验（0x3C ACK/0x68 无 ACK）；硬件侧决议不变。
+12. **直线插补双重斜坡 / 奇异穿越（§3.9 预判）**：kinematics 与 actuator 各有限速 = 两重斜坡叠加，轨迹滞后变形且整定互相甩锅——铁律：直线模式插补节拍是时间主人，ease_dps > 插补峰值角速度，`Kin_LineStart` 校验违例拒绝；直线请求穿越肘伸直奇异区时关节角速度需求剧增，舵机跟不上末端"甩"出直线——全线预扫拒绝启动，不做绕行；PC 单测不覆盖机械背隙，双向往返偏差只能画线实测。
 
 ## 七、资源预算增量（基线：BSP 规划 §八，剩余 ≥22 KB）
 
@@ -326,8 +362,10 @@ bool RC_Cmd_GetCopy(RC_Cmd_t *out);        /* 唯一读法：关调度内 memcpy
 | motor 实例 + PID×4 | ~0.2 KB | 通道映射表 + PID 状态 |
 | actuator 实例×4 | ~0.2 KB | 静态于 grab_task（4 舵机各一份） |
 | RC_Cmd + 快照双缓冲 | ~0.1 KB | 13B 载荷 + float 命令结构 |
+| kinematics 状态机 + 配置 | ~0.1 KB | KinLine_t 单实例 + KinConfig（§3.9，无大缓冲） |
 | algorithm/Power/alarm | <0.1 KB | 纯状态，无大缓冲 |
-| **合计** | **<1.6 KB** | 剩余仍 ≥20 KB；新增大缓冲先登记 |
+| **合计** | **<1.7 KB** | 剩余仍 ≥20 KB；新增大缓冲先登记 |
 
 ---
 编制：2026-09-30 | 依据：BSP S0~S4 验收实况（81f732c）+ remote 双板联调经验 | 上游：架构 v1.1 / BSP 规划 v1.2
+修订：2026-10-04 v1.1 —— 新增 §3.9 kinematics 构想（机械臂平面运动学：STEP 构型解析 / 平面 3R 逆解 + 直线插补 / 测试台 12 预留），§3.7 IK 归属段同步更新，§四/§五/§六#12/§七 联动

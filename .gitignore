@@ -22,5 +22,6 @@ Release/
 .zed/
 ozone/
 Hardware/F103RC/CMakePresets.json
+Hardware/F407VG/CMakePresets.json
 
 compile_commands.json

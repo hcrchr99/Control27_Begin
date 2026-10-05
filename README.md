@@ -11,7 +11,8 @@ RM 校内赛《机甲夺矿》电控仓库。
 
 ## CubeMX 引脚分配总览
 
-**F407VG（车端）**：截图待补。
+**F407VG（车端）**：
+![CubeMX 引脚分配](docs/pinout_F4.png)
 **F103RC（旧车端）**：
 ![CubeMX 引脚分配](docs/pinout.png)
 

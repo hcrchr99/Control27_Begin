@@ -1,0 +1,23 @@
+# 换行符统一规则（2026-10-06，根治幻影改动）
+# 症状：core.autocrlf=true 下，CubeMX 重新生成用 LF 重写 Drivers/ 全库 90 文件，
+# git 认为检出应得 CRLF 而把它们标成 M（diff 内容比对 0 变化）。
+# 钉死规则后：仓库存 LF / 检出写 LF / CubeMX 写 LF，三方一致，重生成不再产生噪音。
+
+# 文本文件：提交时归一为 LF，检出也保持 LF（不做 CRLF 转换）
+* text=auto eol=lf
+
+# Windows 批处理保持 CRLF（cmd 解析器对 LF 兼容性差）
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 常见二进制显式排除，防 auto 误判
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.zip binary
+*.7z binary
+*.exe binary
+*.o binary
+*.a binary

@@ -43,7 +43,7 @@ typedef struct
 #define PIN_PWR_STBY_GPIO_PIN   STBY_Pin
 #define PIN_PWR_STBY            ((GpioPin_t){ PIN_PWR_STBY_GPIO_PORT, PIN_PWR_STBY_GPIO_PIN })
 
-/* 方向 GPIO ×8（PB0/PB1/PA6/PA7/PC0/PC1/PC8/PC9）
+/* 方向 GPIO ×8（PB0/PB1/PA6/PA7/PC0/PC1/PD3/PD4）
  * 每 2 个一组：xA=xIN1, xB=xIN2；组序号与电机序号的对应关系
  * 由硬件按布线最终决定（README 备注序号未定，勿在 BSP 固化映射）。
  * 2026-09-28 变更：原 PB4/PB5 组让位给编码器3，方向组迁至 PA6/PA7；
@@ -60,10 +60,10 @@ typedef struct
 #define PIN_DIR3A_GPIO_PIN      GPIO_PIN_0
 #define PIN_DIR3B_GPIO_PORT     GPIOC
 #define PIN_DIR3B_GPIO_PIN      GPIO_PIN_1
-#define PIN_DIR4A_GPIO_PORT     GPIOC
-#define PIN_DIR4A_GPIO_PIN      GPIO_PIN_8
-#define PIN_DIR4B_GPIO_PORT     GPIOC
-#define PIN_DIR4B_GPIO_PIN      GPIO_PIN_9
+#define PIN_DIR4A_GPIO_PORT     GPIOD
+#define PIN_DIR4A_GPIO_PIN      GPIO_PIN_3
+#define PIN_DIR4B_GPIO_PORT     GPIOD
+#define PIN_DIR4B_GPIO_PIN      GPIO_PIN_4
 
 #define PIN_DIR1A               ((GpioPin_t){ PIN_DIR1A_GPIO_PORT, PIN_DIR1A_GPIO_PIN })
 #define PIN_DIR1B               ((GpioPin_t){ PIN_DIR1B_GPIO_PORT, PIN_DIR1B_GPIO_PIN })

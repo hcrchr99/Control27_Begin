@@ -9,8 +9,8 @@
  *  - 只出字节级 API 与片选/使能电平，包级/器件逻辑全部在 Modules/remote（规则 2：
  *    命名仅外设概念，CSN/CE 以"选中/使能"语义呈现，无器件名）。
  */
-#ifndef F103RC_BSP_SPI_H
-#define F103RC_BSP_SPI_H
+#ifndef BSP_SPI_H
+#define BSP_SPI_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -55,4 +55,4 @@ void Spi_Ce(bool active);
  */
 bool Spi_IsReady(void);
 
-#endif /* F103RC_BSP_SPI_H */
+#endif /* BSP_SPI_H */

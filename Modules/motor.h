@@ -10,8 +10,8 @@
  *  - 上电安全链：CubeMX 复位 STBY=低（关断，gpio.c 核实）→ Motor_Init 保持低
  *    → Motor_Enable 才出力；Motor_Disable = duty 0 + STBY 低双保险。
  */
-#ifndef F103RC_MOTOR_H
-#define F103RC_MOTOR_H
+#ifndef MOTOR_H
+#define MOTOR_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -62,4 +62,4 @@ void Motor_Disable(void);
  * float Motor_GetSpeedRpm(MotorCh_t ch);   （Encoder_Read × ROBOT_ENC_PPR 换算）
  */
 
-#endif /* F103RC_MOTOR_H */
+#endif /* MOTOR_H */

@@ -1,11 +1,11 @@
 /**
  * @file    test_power.c
- * @brief   S6 测试项 8=POWER：V/I/P 打印对表 + 双 ADC 同步性 + ADC3 双通道
+ * @brief   S6 测试项 8=POWER：V/I/P/J 打印对表 + 双 rank 同步性
  *
  * 验收标准（BSP 规划 §六 / Modules 规划 §3.4）：
  *  - V/I 串口打印与万用表误差 <5%（T3，系数对表定值进 robot_config.h）；
- *  - 双 ADC 同步性：负载突变时 U/I 同拍变化（T4，同打印行内 I↑ 且 V↓）；
- *  - ADC3 关节电流两路可读、不串扰（T5）。
+ *  - 双 rank 同步性：负载突变时 U/I 同拍变化（T4，同打印行内 I↑ 且 V↓）；
+ *  - 关节电流 J0/J1 两路可读、不串扰（T5，双 rank2 连续采样）。
  *
  * 操作（板上）：
  *  - 常态 500ms 打印 raw 与换算值（newlib-nano 未启 _printf_float，

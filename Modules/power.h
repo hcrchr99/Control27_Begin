@@ -10,8 +10,8 @@
  *  - 失联语义：未初始化 / 读取失败一律返回 NaN（与 servo/motor 的
  *    NaN 失安全同风格，调用方以 != 自比判别）。
  */
-#ifndef F103RC_POWER_H
-#define F103RC_POWER_H
+#ifndef POWER_H
+#define POWER_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -40,12 +40,12 @@ float Power_GetCurrent(void);
 float Power_GetPower(void);
 
 /**
- * @brief  关节电流（A）：k=0 大臂（ADC3_CH1/IN12/PC2）、k=1 小臂（ADC3_CH2/
- *         IN13/PC3），数字舵机供电回路采样，消费方 actuator（堵转判定注入），
+ * @brief  关节电流（A）：k=0 大臂（J0/IN12/PC2）、k=1 小臂（J1/IN13/PC3），
+ *         数字舵机供电回路采样，消费方 actuator（堵转判定注入），
  *         sense/OLED 亦可复用。
  * @param  k 关节序号，0..ROBOT_POWER_JOINT_COUNT-1
  * @note   量程 0~3A 级，换算系数 ROBOT_POWER_JOINT_I_K 待硬件定案后标定。
  */
 float Power_GetJointCurrent(uint8_t k);
 
-#endif /* F103RC_POWER_H */
+#endif /* POWER_H */

@@ -64,8 +64,9 @@ float Power_GetJointCurrent(uint8_t k)
         return NAN;
     }
     uint16_t raw;
-    /* k=0/1 → ADC3_CH1/CH2（IN12/IN13，映射关系见 bsp_pin.h 唯一硬件地图） */
-    if (!Adc3_Read((uint8_t)(k + 1u), &raw))
+    /* k=0/1 → J0/J1（rank2 低/高半字，映射关系见 bsp_pin.h 唯一硬件地图；
+     * 2026-10-05 随 F407VG 迁移由 ADC3 轮询升级为双 rank 连续采样） */
+    if (!Adc_J_Read((uint8_t)(k + 1u), &raw))
     {
         return NAN;
     }

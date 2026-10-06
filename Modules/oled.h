@@ -61,8 +61,8 @@
  *
  * ========================================================================
  */
-#ifndef F103RC_OLED_H
-#define F103RC_OLED_H
+#ifndef OLED_H
+#define OLED_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -94,4 +94,4 @@ void Oled_Printf(uint8_t x, uint8_t y, const char *fmt, ...);
  */
 bool Oled_Refresh(void);
 
-#endif /* F103RC_OLED_H */
+#endif /* OLED_H */

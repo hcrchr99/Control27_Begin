@@ -10,7 +10,7 @@
 #include "bsp_log.h"
 #include "robot_config.h"
 #include "i2c.h"
-#include "stm32f1xx_hal.h"
+#include "stm32f4xx_hal.h"
 
 static bool     s_ready = false;
 static uint32_t s_fail_run = 0u;    /* 连续失败计数（成功清零） */

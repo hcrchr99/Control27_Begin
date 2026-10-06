@@ -6,7 +6,7 @@
             "hidden": true,
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/${presetName}",
-            "toolchainFile": "${sourceDir}/Hardware/F103RC/cmake/gcc-arm-none-eabi.cmake",
+            "toolchainFile": "${sourceDir}/Hardware/F407VG/cmake/gcc-arm-none-eabi.cmake",
             "cacheVariables": {
             }
         },

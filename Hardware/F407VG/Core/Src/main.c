@@ -29,7 +29,12 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "bsp_sys.h"
+#include "bsp_log.h"
+#include "bsp_encoder.h"
+#include "bsp_pwm.h"
+#include "bsp_adc.h"
+#include "bsp_iic.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -97,7 +102,6 @@ int main(void)
   MX_DMA_Init();
   MX_ADC1_Init();
   MX_ADC2_Init();
-  MX_ADC3_Init();
   MX_I2C2_Init();
   MX_SPI2_Init();
   MX_TIM1_Init();
@@ -108,8 +112,24 @@ int main(void)
   MX_TIM8_Init();
   MX_UART4_Init();
   MX_TIM9_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-
+  /* ADC方案B: 双同步+连续转换+DMA循环由硬件自动搬运, 不需要DMA中断.
+   * CubeMX 在双同步模式下强制使能 DMA2_Stream0 中断(界面置灰不可关),
+   * 在此显式屏蔽, 避免循环模式下半满/全满中断频繁打断RTOS任务. */
+  HAL_NVIC_DisableIRQ(DMA2_Stream0_IRQn);
+  /* S0: BSP 初始化（时钟自检 + DWT）与日志口启动（UART4 已在上面 MX 初始化） */
+  Bsp_Init();
+  Log_Init();
+  /* S3: 启动四路编码器计数（MX_TIMx_Init 的编码器配置已在上面完成） */
+  Encoder_InitAll();
+  /* S4: 启动 9 路 PWM 输出（20K×4 + 250Hz×2 + 50Hz×3，compare 保持
+   * CubeMX Pulse=0：duty 0 / 不发脉冲） */
+  Pwm_InitAll();
+  /* S6: 启动 ADC1/2 双同步双 rank DMA 循环采样（V/I + J0/J1，丢前2轮） */
+  Adc_Init();
+  /* S7: I²C2 总线服务就绪（校验 hi2c2；阻塞读写+超时+总线恢复见 Iic_*） */
+  Iic_Init();
   /* USER CODE END 2 */
 
   /* Call init function for freertos objects (in cmsis_os2.c) */

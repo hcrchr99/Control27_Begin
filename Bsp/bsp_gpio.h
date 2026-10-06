@@ -10,8 +10,8 @@
  *    仅此一处，不引入 Instance/Register 框架：一线一回调源、初始化期
  *    固定注册，用不到运行期生命周期管理。
  */
-#ifndef F103RC_BSP_GPIO_H
-#define F103RC_BSP_GPIO_H
+#ifndef BSP_GPIO_H
+#define BSP_GPIO_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -48,4 +48,4 @@ void Gpio_Reset(GpioPin_t pin);
 /* 电平读：返回 true = 高电平（按键上拉输入未按下即 true） */
 bool Gpio_Read(GpioPin_t pin);
 
-#endif /* F103RC_BSP_GPIO_H */
+#endif /* BSP_GPIO_H */

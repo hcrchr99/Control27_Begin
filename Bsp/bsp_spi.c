@@ -3,15 +3,15 @@
  * @brief   SPI2 全双工字节级收发实现
  *
  * CubeMX 基线：主模式 8bit、CPOL=0/CPHA=1EDGE、软件 NSS、分频 8。
- * ⚠ SPI2 挂 APB1（36MHz），实际时钟 = 36/8 = 4.5MHz（此前文档误按 72MHz 算成 9MHz，
- *   2026-09-29 已勘误）；4.5MHz 远低于 nRF24L01+ 的 10MHz 上限，无需改分频。
+ * 实际时钟 = APB1(42MHz)/8 = 5.25MHz（F407VG；F103 时代为 4.5MHz），
+ * 远低于 nRF24L01+ 的 10MHz 上限，无需改分频。
  */
 #include "bsp_spi.h"
 #include "bsp_pin.h"
 #include "bsp_gpio.h"
 #include "robot_config.h"
 #include "spi.h"
-#include "stm32f1xx_hal.h"
+#include "stm32f4xx_hal.h"
 
 bool Spi_Init(void)
 {

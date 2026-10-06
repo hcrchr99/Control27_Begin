@@ -4,9 +4,11 @@
  */
 #include "bsp_sys.h"
 #include "bsp_pin.h"
-#include "stm32f1xx_hal.h"
+#include "stm32f4xx_hal.h"
 
-#define BSP_SYS_EXPECT_HZ   72000000u   /* HSE 8MHz x PLL9，见 main.c SystemClock_Config */
+#define BSP_SYS_EXPECT_HZ   168000000u  /* HSE 8MHz，PLLM=4/PLLN=168/VCO=336→PLL÷2，
+                                         * APB1=HCLK/4(42M)/定时器84M、APB2=HCLK/2(84M)/定时器168M，
+                                         * 见 F407VG.ioc / main.c SystemClock_Config */
 
 void Bsp_Init(void)
 {
@@ -19,11 +21,11 @@ void Bsp_Init(void)
         while (1)
         {
             HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
-            for (volatile uint32_t i = 0; i < 720000u; i++) { __NOP(); }
+            for (volatile uint32_t i = 0; i < 1680000u; i++) { __NOP(); }
         }
     }
 
-    /* 使能 DWT 周期计数器（Cortex-M3 内核外设，无需 HAL 模块） */
+    /* 使能 DWT 周期计数器（Cortex-M4 内核外设，无需 HAL 模块） */
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->CYCCNT = 0;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;

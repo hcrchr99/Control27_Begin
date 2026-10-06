@@ -1,86 +1,84 @@
 /**
  * @file    bsp_adc.h
- * @brief   ADC1/2 双同步规则组 DMA 循环采样 + ADC3 独立扫描轮询
+ * @brief   ADC1/2 双同步规则组 DMA 循环采样（双 rank：电源 V/I + 关节 J0/J1）
  *
- * 设计（BSP层开发规划 四.4 / ADC方案B配置指南，2026-10-03 预研勘误）：
- *  - CubeMX 基线（方案 B，零中断）：ADC1(主)+ADC2(从) 双同步 REGSIMULT、
- *    ADC1 连续转换、DMA1_Ch1 循环搬运（Word 对齐，一次 Word = 一对同步样本），
- *    DMA 中断已在 main.c 屏蔽，数据由 DMA 持续刷新，任务直接读内存；
+ * 设计（BSP层开发规划 四.4 / ADC方案B配置指南；2026-10-05 随 F407VG 迁移勘误
+ * + 双 rank 重构）：
+ *  - CubeMX 基线（方案 B 演进形，零中断）：ADC1(主)+ADC2(从) 双同步 REGSIMULT、
+ *    双 rank 等长序列（rank1: IN4+IN5=电源 V/I，rank2: IN12+IN13=关节 J0/J1）、
+ *    ADC1 连续转换、DMA2_Stream0 循环搬运（Word 对齐，一次 Word = 一对同步样本，
+ *    字流按 rank 交替：偶=rank1 对、奇=rank2 对），DMA 中断已在 main.c 屏蔽，
+ *    数据由 DMA 持续刷新，任务直接读内存；
  *  - ⚠ 双同步启动必须用 HAL_ADCEx_MultiModeStart_DMA（HAL_ADC_Start_DMA 在
- *    多模式下直接返回 HAL_ERROR，stm32f1xx_hal_adc.c 的 multimode 分支）；
- *  - ⚠ 从机 ADC2 缺配两处（板上两轮破案 2026-10-06）：①EXTTRIG 无人置位
- *    （HAL_ADC_Init 有意留给 Start_xxx，MultiModeStart_DMA 只管主机，CubeMX
- *    也填不了）——Adc_Init 内 SET_BIT 补位；②从机 CONT 原为 DISABLE（工程
- *    漏配，.ioc 可配）——已改 .ioc 源头生成 ENABLE，运行期不再处理；
- *  - ⚠ F103 的 ADC CR2 无 DDS 位（"DMA Continuous Requests" 为 F4/L4 系概念），
- *    方案 B 指南 §2.1/§3 该自检项在 F1 不适用——循环 DMA 本身持续搬运；
+ *    多模式下直接返回 HAL_ERROR，F1/F4 HAL 同此约束）；
+ *  - ⚠ F4 前提（.ioc 源头保证，勿在运行期补救）：ADC1 的
+ *    DMAContinuousRequests=ENABLE（F4 MultiModeStart_DMA 按它置 CCR.DDS，
+ *    DISABLE 则循环 DMA 搬完一窗即停）；采样时间 84CYCLES（F4 无 55.5 档）；
+ *  - ⚠ F1 遗留项/架构差异（勘误#5/#6 速查，全文见 docs/BSP调试日志.md）：
+ *    F4 无 ADC 校准；F4 HAL 只使能多模式主机（从机 ADON 由 Adc_Init 补位）；
+ *    MULTI≠0 屏蔽 ADC3 独立启动 → ADC3 退役、J0/J1 并入 rank2——J 采样
+ *    从"按需轮询"升级为"连续采样"（对 W2.4 堵转判据更友好）；
  *  - 只出外设级 API（原始码/均值），物理量换算在 Modules/power（标定点唯一）；
  *  - 缓冲与窗口样本数 = ROBOT_POWER_WINDOW（robot_config.h，编译期定死）。
  */
-#ifndef F103RC_BSP_ADC_H
-#define F103RC_BSP_ADC_H
+#ifndef BSP_ADC_H
+#define BSP_ADC_H
 
 #include <stdint.h>
 #include <stdbool.h>
 
-/* 双同步原始对：ADC1 联合 DR 一次 32 位搬运，低 16=ADC1、高 16=ADC2
- * （采样对象归属见 bsp_pin.h：IN4=PA4 电流 / IN5=PA5 电压） */
+/* 双同步原始对：多模式一次 32 位搬运读 CDR，低 16=ADC1、高 16=ADC2。
+ * rank1 对 = (IN4 电流, IN5 电压)，rank2 对 = (IN12 J0, IN13 J1)
+ * （采样对象归属见 bsp_pin.h） */
 typedef struct
 {
     uint16_t raw_i;     /* ADC1 IN4 原始码（0..4095） */
     uint16_t raw_v;     /* ADC2 IN5 原始码（0..4095） */
 } AdcPair_t;
 
-/* ADC3 通道序号（对应 bsp_pin.h 的 PIN_ADC3_CH1/CH2，采样对象归属见其注释） */
-#define ADC3_CH1     1u
-#define ADC3_CH2     2u
+/* 关节通道序号（Adc_J_Read 的 ch 参数） */
+#define ADC_J_CH1     1u     /* rank2 低半字 = ADC1_IN12（PC2，J0） */
+#define ADC_J_CH2     2u     /* rank2 高半字 = ADC2_IN13（PC3，J1） */
 
 /**
  * @brief  启动采样（幂等，重复调用无副作用）。
- *         校准 ADC1/2/3（F1 上电必须各校准一次，且在启动之前）→
- *         双同步 MultiModeStart_DMA 循环搬运 → 丢前 2 窗首批样本
- *         （约 2×(16 对×5.7µs) ≈ 200µs 忙等，之后缓冲全量为新鲜数据）→
- *         ADC3 降为单通道轮询（原因见 Adc3_Read 注释，重跑 HAL_ADC_Init 生效，
- *         CubeMX 的 2-rank 扫描基线在运行期被此覆盖属预期）。
+ *         手动上电从机（勘误#5）→ 双同步 MultiModeStart_DMA 循环搬运 →
+ *         丢前 2 轮首批样本（约 300µs 忙等，之后缓冲全量为新鲜数据）。
  *         不重跑 MX_ADCx_Init（main.c 已在调度器启动前调用）。
- * @note   需 Bsp_Init/Log_Init 已跑（main.c USER CODE 2 中按序调用）；
- *         ADC3 不在此启动：软件触发由 Adc3_Read 每次自启。
+ * @note   需 Bsp_Init/Log_Init 已跑（main.c USER CODE 2 中按序调用）。
  */
 void Adc_Init(void);
 
 /**
- * @brief  取最新一对同步样本（uint32 在 Cortex-M3 上读原子，无撕裂）。
+ * @brief  取最新一对同步 V/I（rank1，偶下标；uint32 读原子无撕裂）。
  * @param  out 接收原始对，不可为 NULL
- * @retval false = out 为 NULL / 未初始化（Adc_Init 未跑过）
+ * @retval false = out 为 NULL / 未初始化 / 首轮 rank1 对未落
  */
 bool Adc_GetLatest(AdcPair_t *out);
 
 /**
- * @brief  取全窗均值（窗长 = ROBOT_POWER_WINDOW 对）。
- *         逐对累加：32 位对读原子（Cortex-M3），各对之间可能跨 DMA 轮次
- *         新旧混合——对均值影响可忽略（方案 B 指南 §4.2 简化做法，PRIMASK
- *         关中断本就拦不住 DMA 硬件写入，不做伪快照）。
- *         高频噪声由硬件采样窗滤除，负载变化滤除由调用方周期节拍负责。
- * @retval false = out 为 NULL / 未初始化
+ * @brief  取全窗均值（窗长 = ROBOT_POWER_WINDOW 对，偶下标）。
+ *         逐对累加：32 位对读原子，各对之间可能跨 DMA 轮次新旧混合——对均值
+ *         影响可忽略（方案 B 指南 §4.2 简化做法，PRIMASK 关中断本就拦不住
+ *         DMA 硬件写入，不做伪快照）。
+ * @retval false = out 为 NULL / 未初始化 / 首轮未填满整环
  */
 bool Adc_GetAvg(AdcPair_t *out);
 
 /**
- * @brief  ADC3 单通道读取（独立慢速路，软件触发单次转换）。
- * @param  ch ADC3_CH1 / ADC3_CH2
+ * @brief  取最新一对关节原始码（rank2，奇下标；连续采样，非阻塞无超时路径）。
+ * @param  ch ADC_J_CH1 / ADC_J_CH2
  * @param  raw 接收原始码，不可为 NULL
- * @retval false = 参数非法 / 超时（ROBOT_ADC_TIMEOUT_MS）/ HAL 错误
- * @note   ⚠ 实现说明：CubeMX 基线是 2-rank 扫描，但 F1 只有一个 DR 且扫描
- *         模式下 EOC 仅在序列末置位（stm32f1xx_hal_adc.c 2346 行注明），
- *         轮询路径只能取到 rank2——因此 Adc_Init 把 ADC3 降为单通道，
- *         本函数每次读前重配 rank1 通道（HAL 官方 API，µs 级）。
- *         阻塞约 68 周期 ≈ 6µs + 轮询余量，20~50ms 级调用方无感。
+ * @retval false = 参数非法 / 未初始化 / 首轮 J 对未落
+ * @note   最新 rank1 为偶位时本轮 rank2 尚未落，返回上一轮的（滞后约
+ *         9.2µs，20~50ms 级调用方无感）。相比 F1 的按需轮询：无阻塞、
+ *         无 2ms 超时路径、失败源只剩"还没采到过"。
  */
-bool Adc3_Read(uint8_t ch, uint16_t *raw);
+bool Adc_J_Read(uint8_t ch, uint16_t *raw);
 
 /**
  * @brief  诊断：双同步 DMA 采样是否已启动（Adc_Init 跑过且 HAL 报 OK）
  */
 bool Adc_IsReady(void);
 
-#endif /* F103RC_BSP_ADC_H */
+#endif /* BSP_ADC_H */

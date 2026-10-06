@@ -1,6 +1,9 @@
 /**
  * @file    bsp_log.c
- * @brief   UART4 IT 环形缓冲日志实现
+ * @brief   USART2 IT 环形缓冲日志实现
+ *（2026-10-05 随 F407VG 迁移：日志口由 UART4/PC10,11 改挂 USART2/PD5(TX),PA3(RX)，
+ *  板上 UART4 阻塞式判别未通而 USART2 阻塞式直通——PC10 引脚占用/位置存疑，
+ *  USART2 引脚确认为通；API 与 IP 同代，仅换句柄与实例宏）
  */
 #include "bsp_log.h"
 #include "bsp_pin.h"
@@ -80,7 +83,7 @@ static void log_tx_kick_locked(void)
     }
     log_tx_busy = 1u;
     /* 发起失败时回滚 busy，否则没有 TxCplt 来清标志，发送链会永久卡死 */
-    if (HAL_UART_Transmit_IT(&huart4, log_tx_chunk, cnt) != HAL_OK)
+    if (HAL_UART_Transmit_IT(&huart2, log_tx_chunk, cnt) != HAL_OK)
     {
         log_tx_busy = 0u;
     }
@@ -115,8 +118,8 @@ void Log_Init(void)
     log_tx_busy = 0u;
     log_tx_drop_cnt = 0u;
 
-    /* 启动 RX 单字节中断链；UART4 的 MspInit 已使能 NVIC(优先级 5,0) */
-    (void)HAL_UART_Receive_IT(&huart4, &log_rx_byte, 1u);
+    /* 启动 RX 单字节中断链；USART2 的 MspInit 已使能 NVIC(优先级 5,0) */
+    (void)HAL_UART_Receive_IT(&huart2, &log_rx_byte, 1u);
 }
 
 void Log_Printf(const char *fmt, ...)
@@ -189,7 +192,7 @@ __attribute__((used)) int fputc(int ch, FILE *f)
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance == UART4)
+    if (huart->Instance == USART2)
     {
         log_tx_busy = 0u;
         log_tx_kick_locked();   /* ISR 上下文，本身就在"关中断"语义内 */
@@ -198,7 +201,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance == UART4)
+    if (huart->Instance == USART2)
     {
         log_rx_buf[log_rx_head] = log_rx_byte;
         log_rx_head = (uint16_t)((log_rx_head + 1u) % LOG_RX_SIZE);
@@ -208,10 +211,11 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance == UART4)
+    if (huart->Instance == USART2)
     {
-        /* F1 HAL 语义（stm32f1xx_hal_uart.c IRQHandler）：ORE 为阻断错误，
-         * 已先 EndRxTransfer（RxState=READY）再进本回调；NE/FE 不中止传输。
+        /* F1/F4 同代 UART IP 同语义（HAL UART IRQHandler：ORE 为阻断错误，
+         * 已先 EndRxTransfer（RxState=READY）再进本回调；NE/FE 不中止传输；
+         * F4 分支 2026-10-05 源码核实一致）。
          * 故仅在 READY 时清 ORE 并重新挂接收，BUSY_RX 时不可重复挂。 */
         if (huart->RxState == HAL_UART_STATE_READY)
         {

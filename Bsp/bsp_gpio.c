@@ -3,7 +3,7 @@
  * @brief   GPIO 电平读写 + EXTI 回调注册表实现
  */
 #include "bsp_gpio.h"
-#include "stm32f1xx_hal.h"
+#include "stm32f4xx_hal.h"
 
 /* ============================ EXTI 回调注册表 ============================= */
 
@@ -11,7 +11,7 @@
  *
  * 并发正确性论证（免临界区）：
  *  - 写入仅发生在初始化阶段（Exti_Attach 契约），ISR 侧只读；
- *  - 表项是 32bit 对齐的函数指针，Cortex-M3 上单条 store 原子；
+ *  - 表项是 32bit 对齐的函数指针，Cortex-M 上单条 store 原子；
  *  - "初始化期写入、之后只读"的约定排除了理论上的读写竞争窗口。 */
 static ExtiCallback_t s_exti_cb[16] = { NULL };
 
@@ -22,7 +22,7 @@ bool Exti_Attach(uint16_t gpio_pin, ExtiCallback_t cb)
     {
         return false;
     }
-    /* POSITION_VAL：bit 序号 → 线号，Cortex-M3 编译为 RBIT+CLZ，O(1) 无查表 */
+    /* POSITION_VAL：bit 序号 → 线号，Cortex-M4 编译为 RBIT+CLZ，O(1) 无查表 */
     s_exti_cb[POSITION_VAL(gpio_pin)] = cb;
     return true;
 }
@@ -30,7 +30,7 @@ bool Exti_Attach(uint16_t gpio_pin, ExtiCallback_t cb)
 /* ============================== ISR 分发入口 ============================== */
 
 /* HAL weak 回调的强符号覆盖，F1 HAL 的统一 EXTI 入口
- * （stm32f1xx_hal_gpio.c：EXTI IRQHandler → 清挂起 → 本函数，无上升/下降分体）。
+ * （F1/F4 的 HAL_GPIO_EXTI_IRQHandler 均为：清挂起 → 本函数，无上升/下降分体）。
  * KEY1/KEY2（EXTI15_10）与 nRF24 IRQ（EXTI9_5）两条共享中断线共用本表，
  * 按线号各取各的表项，天然规避混判断（坑 #9）。 */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)

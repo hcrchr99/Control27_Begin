@@ -21,8 +21,8 @@
  *    器件 0x68 探测一次仅 +1）；
  *  - 非并发契约：I²C2 当前仅 Modules/oled 一个消费者，调用方自行保证互斥。
  */
-#ifndef F103RC_BSP_IIC_H
-#define F103RC_BSP_IIC_H
+#ifndef BSP_IIC_H
+#define BSP_IIC_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -68,4 +68,4 @@ bool Iic_IsDeviceReady(uint8_t dev_addr7);
  */
 uint32_t Iic_GetRecoverCount(void);
 
-#endif /* F103RC_BSP_IIC_H */
+#endif /* BSP_IIC_H */

@@ -11,8 +11,8 @@
  * 新板 bring-up 顺序（对齐 BSP层开发规划 六，依赖序）：
  *   上电心跳（NONE 项）→ GPIO/EXTI → 编码器 → SPI/无线 → 后续 PWM/ADC/I2C
  */
-#ifndef F103RC_TEST_BENCH_H
-#define F103RC_TEST_BENCH_H
+#ifndef TEST_BENCH_H
+#define TEST_BENCH_H
 
 #include <stdbool.h>
 #include "robot_config.h"
@@ -27,8 +27,8 @@ typedef enum
     TEST_BENCH_PWM,         /* S4：TIM4 20kHz duty 阶梯 / TIM5 50Hz 脉宽阶梯 */
     TEST_BENCH_REMOTE,      /* S2：无线链路收发体检 + 收包统计 */
     TEST_BENCH_MOTOR,       /* S5：四路开环正反转阶梯 + 编码器符号交叉验证 */
-    TEST_BENCH_SERVO,       /* S5：中位/扫描/SG90 卸力 + 数字舵机 fail-hold */
-    TEST_BENCH_POWER,       /* S6：V/I/P 打印对表 + 双 ADC 同步性 + ADC3 双通道 */
+    TEST_BENCH_SERVO,       /* S5：中位/扫描/五路卸力手掰（PM10S+SG90） */
+    TEST_BENCH_POWER,       /* S6：V/I/P/J 打印对表 + 双 rank 同步性 */
     TEST_BENCH_OLED,        /* S7：四项显示对表 + 拔插排线自愈 + 地址参数化探测 */
 } TestBenchId_t;
 
@@ -45,4 +45,4 @@ bool TestBench_Active(void);
  */
 void TestBench_Yield(const char *task_name);
 
-#endif /* F103RC_TEST_BENCH_H */
+#endif /* TEST_BENCH_H */

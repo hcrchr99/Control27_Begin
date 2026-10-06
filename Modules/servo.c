@@ -1,16 +1,18 @@
 /**
  * @file    servo.c
- * @brief   舵机 ×4 器件驱动（Modules/servo，S5 器件层）
+ * @brief   舵机 ×5 器件驱动（Modules/servo，S5 器件层；2026-10-05 随
+ *          F407VG 迁移增补 ID5=爪旋转，帧率分组 PM10S@250Hz / SG90@50Hz）
  *
  * 《spec 对照清单》—— PWM 舵机无权威数据手册，规格依据 = Modules 规划
  * §3.2 构型表（2026-10-01 与硬件组确认）+ 实机标定：
  *  [x] 脉宽范围：500~2500µs 标称（PM10S 标称 0.5~2.5ms），0..180° 线性映射，
  *      每 id 独立标定两端（ROBOT_SERVO_PULSE_*_US_LIST）——SG90 实际行程
  *      普遍不足 180°，标定后填实测值
- *  [x] 刷新率：50Hz（TIM5 硬件自动发波，写 compare 即持续；1 步 = 2µs ≈
- *      0.18°/步，2026-10-02 由 20µs 细化）
- *  [x] 器件分型：数字舵机 fail-hold（停脉冲锁存不变）/ SG90 模拟
- *      （停脉冲=真卸力）——行为差异项在测试台 7=SERVO 实测记录
+ *  [x] 刷新率：按组——PM10S 组 TIM9 250Hz / SG90 组 TIM5 50Hz（硬件自动
+ *      发波，写 compare 即持续；两组均 1 步 = 2µs ≈ 0.18°/步，
+ *      2026-10-05 F407VG 帧率分组，此前 F103 单组 50Hz）
+ *  [x] 卸力：停脉冲=卸力对 PM10S / SG90 一致（2026-10-05 实测修正：
+ *      PM10S 并非 fail-hold，此前"锁存保持/需 MOS 开关"表述作废）
  *  [ ] 脉宽↔角度实测标定（实机进行，验收时逐 id 填 robot_config.h）
  *  [ ] 软限位机械核对（结构定机械限位后收紧 ROBOT_SERVO_LIMIT_*_DEG_LIST）
  */
@@ -21,7 +23,6 @@
 
 /* 配置表（值来自 robot_config.h；布线/标定定案只改配置，本文件零改动） */
 static const uint8_t  s_pwm_ch[SERVO_COUNT]       = ROBOT_SERVO_PWM_CH_LIST;
-static const bool     s_digital[SERVO_COUNT]      = ROBOT_SERVO_DIGITAL_LIST;
 static const uint16_t s_pulse_min_us[SERVO_COUNT]  = ROBOT_SERVO_PULSE_MIN_US_LIST;
 static const uint16_t s_pulse_max_us[SERVO_COUNT]  = ROBOT_SERVO_PULSE_MAX_US_LIST;
 static const float    s_limit_min_deg[SERVO_COUNT] = ROBOT_SERVO_LIMIT_MIN_DEG_LIST;
@@ -81,17 +82,6 @@ bool Servo_Release(ServoId_t id)
     {
         return false;
     }
-    /* 统一停脉冲（compare=0）；语义随器件分型：
-     * SG90 = 真卸力，数字舵机 = 锁存不变（fail-hold），见头文件 */
-    Pwm_Release(s_pwm_ch[id]);
-    return !s_digital[id];
-}
-
-bool Servo_CanUnload(ServoId_t id)
-{
-    if (id >= SERVO_COUNT)
-    {
-        return false;
-    }
-    return !s_digital[id];
+    Pwm_Release(s_pwm_ch[id]);      /* 停脉冲=卸力（两类器件一致） */
+    return true;
 }

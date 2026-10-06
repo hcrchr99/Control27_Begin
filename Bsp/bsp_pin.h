@@ -9,8 +9,8 @@
  *  - 宏名只用外设概念，禁止器件名（Motor/Servo/Oled/Nrf24）；
  *    器件归属写在注释里，供 Modules 层查阅。
  */
-#ifndef F103RC_BSP_PIN_H
-#define F103RC_BSP_PIN_H
+#ifndef BSP_PIN_H
+#define BSP_PIN_H
 
 #include "main.h"
 
@@ -46,8 +46,8 @@ typedef struct
 /* 方向 GPIO ×8（PB0/PB1/PA6/PA7/PC0/PC1/PC8/PC9）
  * 每 2 个一组：xA=xIN1, xB=xIN2；组序号与电机序号的对应关系
  * 由硬件按布线最终决定（README 备注序号未定，勿在 BSP 固化映射）。
- * 2026-09-28 变更：原 PB4/PB5 组让位给编码器3（TIM3 部分重映射），
- * 方向组迁至 PA6/PA7。 */
+ * 2026-09-28 变更：原 PB4/PB5 组让位给编码器3，方向组迁至 PA6/PA7；
+ * 2026-10-05 随 F407VG 迁移引脚等位保留。 */
 #define PIN_DIR1A_GPIO_PORT     GPIOB
 #define PIN_DIR1A_GPIO_PIN      GPIO_PIN_0
 #define PIN_DIR1B_GPIO_PORT     GPIOB
@@ -101,39 +101,47 @@ typedef struct
 
 /* ================================= PWM 输出 ================================ */
 
-/* 20kHz PWM 组（TIM4 CH1-4，PSC=0 ARR=3599；用途：4 路电机调速） */
+/* 20kHz PWM 组（TIM4 CH1-4，APB1 定时器 84MHz，PSC=0 ARR=4199；用途：4 路电机调速）
+ * ⚠ ARR 为 CubeMX 对账值：改 .ioc 时基必须同步本文件（S5 教训：
+ * 不同步则 SetPulseUs/SetDuty 换算出数量级偏差） */
 #define PIN_PWM20K_TIM          TIM4
 #define PIN_PWM20K_CH1          TIM_CHANNEL_1   /* PB6 */
 #define PIN_PWM20K_CH2          TIM_CHANNEL_2   /* PB7 */
 #define PIN_PWM20K_CH3          TIM_CHANNEL_3   /* PB8 */
 #define PIN_PWM20K_CH4          TIM_CHANNEL_4   /* PB9 */
-#define PIN_PWM20K_ARR          3599u
+#define PIN_PWM20K_ARR          4199u
 
-/* 50Hz PWM 组（TIM5 CH1-4，PSC=1439 ARR=999，1 step = 20us；
- * 用途：舵机脉宽控制，CH4 已确认启用） */
+/* 250Hz PWM 组（TIM9 CH1-2，APB2 定时器 168MHz，PSC=335 ARR=1999；
+ * 用途：PM10S 数字舵机 250Hz 帧率驱动，1 step = 2µs，帧长 4ms = 4000µs）
+ * 2026-10-05 F407VG 迁移新增：与 50Hz 组分 TIM（不同帧率不能共定时器） */
+#define PIN_PWM250HZ_TIM        TIM9
+#define PIN_PWM250HZ_CH1        TIM_CHANNEL_1   /* PE5 */
+#define PIN_PWM250HZ_CH2        TIM_CHANNEL_2   /* PE6 */
+#define PIN_PWM250HZ_ARR        1999u
+#define PIN_PWM250HZ_US_PER_STEP 2u     /* 4ms 周期 / (ARR+1)=2000 步 */
+
+/* 50Hz PWM 组（TIM5 CH1-3，APB1 定时器 84MHz，PSC=167 ARR=9999；
+ * 用途：SG90 舵机脉宽控制，1 step = 2µs，帧长 20ms = 20000µs）
+ * 2026-10-05 F407VG 迁移：CH4/PA3 释放（原 4 路舵机拆为 250Hz×2 + 50Hz×3） */
 #define PIN_PWM50HZ_TIM         TIM5
 #define PIN_PWM50HZ_CH1         TIM_CHANNEL_1   /* PA0 */
 #define PIN_PWM50HZ_CH2         TIM_CHANNEL_2   /* PA1 */
 #define PIN_PWM50HZ_CH3         TIM_CHANNEL_3   /* PA2 */
-#define PIN_PWM50HZ_CH4         TIM_CHANNEL_4   /* PA3 */
 #define PIN_PWM50HZ_ARR         9999u
 #define PIN_PWM50HZ_US_PER_STEP 2u      /* 20ms 周期 / (ARR+1)=10000 步；
-                                             * 2026-10-02 步距 20µs→2µs（TIM5 PSC
-                                             * 1440→144 配套改，舵机指令分辨率
-                                             * 1.8°→0.18°/步） */
+                                             * 2026-10-02 步距 20µs→2µs（舵机指令
+                                             * 分辨率 1.8°→0.18°/步） */
 
 /* ================================ 编码器输入 =============================== */
 
 /* TI12 四倍频，IC Filter = 5；BSP 只出原始增量，换算系数在 robot_config.h
- * ⚠ ENC2/ENC3 均走重映射，其 MspInit 的 remap 宏会改写 SWJ_CFG，
- * 两处 USER CODE 段的 __HAL_AFIO_REMAP_SWJ_NOJTAG() 防御必须保留。 */
+ * （F4 无 AFIO 重映射机制：PA15/PB3/PB4 直接配 AF，无 F1 的 SWJ_CFG 陷阱） */
 #define PIN_ENC1_TIM            TIM1    /* PA8/PA9  */
-#define PIN_ENC2_TIM            TIM2    /* PA15/PB3（部分重映射1，已禁 JTAG） */
-#define PIN_ENC3_TIM            TIM3    /* PB4/PB5（部分重映射，2026-09-28 由 PA6/PA7 迁入） */
+#define PIN_ENC2_TIM            TIM2    /* PA15/PB3 */
+#define PIN_ENC3_TIM            TIM3    /* PB4/PB5（2026-09-28 由 PA6/PA7 迁入，随迁移等位保留） */
 #define PIN_ENC4_TIM            TIM8    /* PC6/PC7  */
 
-/* 编码器输入引脚对象宏（Gpio_Read 读原始电平，诊断信号通断用；
- * 注意 ENC3 实际引脚是重映射后的 PB4/PB5） */
+/* 编码器输入引脚对象宏（Gpio_Read 读原始电平，诊断信号通断用） */
 #define PIN_ENC1A_GPIO_PORT     GPIOA
 #define PIN_ENC1A_GPIO_PIN      GPIO_PIN_8
 #define PIN_ENC1B_GPIO_PORT     GPIOA
@@ -162,22 +170,26 @@ typedef struct
 
 /* ================================ ADC 采样 ================================ */
 
-/* ADC1+ADC2 双同步规则组 + 连续转换 + DMA1_Ch1 循环（32位打包：低16=ADC1，高16=ADC2） */
+/* ADC1+ADC2 双同步规则组 + 连续转换 + DMA2_Stream0 循环（32 位打包读 CDR：
+ * 低16=ADC1，高16=ADC2；F4 前提 DMAContinuousRequests=ENABLE 已由 .ioc 保证）。
+ * 双 rank 等长序列（2026-10-05 F407VG 重构）：rank1=电源 V/I，rank2=关节 J。
+ * 原件：rank1 = IN4(PA4 电流)+IN5(PA5 电压)；rank2 = IN12(PC2 J0)+IN13(PC3 J1)。
+ * F4 上 MULTI≠0 会屏蔽 ADC3 独立启动（勘误#6），ADC3 退役、PC2/PC3 改挂
+ * ADC1/ADC2 rank2。通道号由 .ioc 序列配置，BSP 不再经 cfg.Channel 重配 */
 #define PIN_ADC_BATTERY_ADC     ADC1            /* PA4 电流 */
 #define PIN_ADC_BATTERY_CH      ADC_CHANNEL_4
 #define PIN_ADC2_SYNC_CH        ADC_CHANNEL_5   /* PA5 电压（ADC2 同步采样） */
-
-/* ADC3 独立扫描轮询（关节电流 ×2） */
-#define PIN_ADC3_TIM            ADC3
-#define PIN_ADC3_CH1            ADC_CHANNEL_12  /* PC2 */
-#define PIN_ADC3_CH2            ADC_CHANNEL_13  /* PC3 */
+#define PIN_ADC1_JOINT_CH       ADC_CHANNEL_12  /* PC2 J0（ADC1 rank2） */
+#define PIN_ADC2_JOINT_CH       ADC_CHANNEL_13  /* PC3 J1（ADC2 rank2） */
 
 /* ================================== 串口 ================================== */
 
-/* 调试日志口 UART4（PC10/PC11，115200，纯中断收发，无 DMA）。
- * ⚠ 注意：CubeMX 句柄是 huart4（extern 自 usart.h）。
- * CMSIS 的 `UART4` 宏是外设寄存器块指针（USART_TypeDef*），与句柄是两回事，
+/* 调试日志口 USART2（TX=PD5 / RX=PA3，115200，纯中断收发，无 DMA）。
+ * 2026-10-05 随 F407VG 迁移由 UART4/PC10,11 改挂：板上 UART4 阻塞式判别
+ * 未通而 USART2 直通（PC10 引脚占用/位置存疑，UART4 在 CubeMX 仍保留备用）。
+ * ⚠ 注意：CubeMX 句柄是 huart2（extern 自 usart.h）。
+ * CMSIS 的 `USART2` 宏是外设寄存器块指针（USART_TypeDef*），与句柄是两回事，
  * 严禁强转后当句柄传给 HAL——同理 TIM4/ADC1/SPI2 等实例宏都只是寄存器块，
  * HAL 句柄一律用 htim4/hadc1/hspi2（各外设头文件里 extern）。 */
 
-#endif /* F103RC_BSP_PIN_H */
+#endif /* BSP_PIN_H */

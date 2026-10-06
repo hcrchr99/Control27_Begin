@@ -8,15 +8,15 @@
  *  - 换算系数（线数×4、减速比）在 robot_config.h 的 ROBOT_ENC_PPR，
  *    本模块只出 16bit 回绕差分后的原始增量，不做物理量换算。
  */
-#ifndef F103RC_BSP_ENCODER_H
-#define F103RC_BSP_ENCODER_H
+#ifndef BSP_ENCODER_H
+#define BSP_ENCODER_H
 
 #include <stdint.h>
 
 /* 通道宏：与 bsp_pin.h 的 PIN_ENC1~4_TIM 一一对应 */
 #define ENC_CH1     1u  /* TIM1  PA8/PA9          */
-#define ENC_CH2     2u  /* TIM2  PA15/PB3（部分重映射1，已禁 JTAG） */
-#define ENC_CH3     3u  /* TIM3  PB4/PB5（部分重映射，2026-09-28 由 PA6/PA7 迁入） */
+#define ENC_CH2     2u  /* TIM2  PA15/PB3 */
+#define ENC_CH3     3u  /* TIM3  PB4/PB5（2026-09-28 由 PA6/PA7 迁入） */
 #define ENC_CH4     4u  /* TIM8  PC6/PC7          */
 
 /**
@@ -33,7 +33,7 @@ void Encoder_InitAll(void);
  * 使用约束（BSP 不加锁，靠契约）：
  *  - 同一通道只允许一个读者任务（内部有 last 快照，多读者会互相吃掉增量）；
  *  - 相邻两次读取间隔内单通道增量不得超过 ±32767（16bit 计数窗口），
- *    1kHz 任务周期 + 72MHz 四倍频下满速约 680 计数，余量充足；
+ *    1kHz 任务周期 + 168MHz 四倍频下满速计数余量充足（16bit 窗 ±32767）；
  *  - CNT 为 16bit 寄存器，单次读取原子，无需临界区。
  */
 int32_t Encoder_Read(uint8_t ch);
@@ -48,4 +48,4 @@ int32_t Encoder_Read(uint8_t ch);
  */
 int32_t Encoder_GetCount(uint8_t ch);
 
-#endif /* F103RC_BSP_ENCODER_H */
+#endif /* BSP_ENCODER_H */

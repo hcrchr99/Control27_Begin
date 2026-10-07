@@ -176,7 +176,7 @@ CubeMX 生成代码（Core/Drivers/Middlewares）+ 启动文件 + FreeRTOS 内�
 - 唯一读法：RC_Cmd_GetCopy(&snap)——关调度（或 BASEPRI 屏蔽）内 memcpy 快照，读者绝不直接引用全局结构体字段（vx/vy/omega 三字段非原子，直读会撕裂）。
 - 故障语义两级：link_timeout（300 ms 渐停，指令向零衰减，防甩矿）与 estop（立即零输出+制动）。应用层只看 valid / estop 两个位。
 
-【v1.1 现状】W1 落地的是链路层字节流形态（`Remote_ReadPacket` 帧队列 + `Remote_IsLinkUp` 看门狗），上述三条并发语义在 W2 随遥控协议层落地（见《Modules层开发规划》§3.8），落地前 chassis/grab 不得开环跑整车。
+【2026-10-06 现状】本节三行字已随 W2.2 rc_cmd 全部落地（`Modules/remote/rc_cmd.c/.h`，帧布局 v2 冻结 15B/joint[5]）：唯一写者=remote_task（帧喂 Update）+ 第二写者=看门狗 NULL 帧驱动；唯一读法=GetCopy 关调度快照（vTaskSuspendAll/xTaskResumeAll 包 memcpy，白名单登记见 Modules 规划 §一.1）；两级故障=estop 闩锁（松键帧解除）+ 失联 valid 立即 false + 指令 300ms 线性渐停。PC 单测 53 checks 固化语义（全量 163 全绿）。chassis/grab 从本日起可经 `RC_Cmd_GetCopy` 消费定量指令（归一化 -1.0..+1.0）。
 
 ### 5.2 全链路数据流
 

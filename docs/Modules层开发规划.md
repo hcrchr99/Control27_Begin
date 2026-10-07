@@ -13,7 +13,7 @@
 
 **规则（强制，继承架构文档 §四并细化）：**
 
-1. include 白名单：`bsp_xxx.h`、`robot_config.h`、`cmsis_os.h`（仅限 remote 先例的 ISR 通知模式，新用法须先在本文登记）、`<stdint/stdbool/string>`。**禁止**触碰 HAL / 寄存器 / CubeMX 句柄。
+1. include 白名单：`bsp_xxx.h`、`robot_config.h`、`cmsis_os.h`（仅限 remote 先例的 ISR 通知模式，新用法须先在本文登记）、`<stdint/stdbool/string>`。**禁止**触碰 HAL / 寄存器 / CubeMX 句柄。**【2026-10-06 登记】第二例外：rc_cmd.c 为关调度快照（架构 §5.1 处方）include FreeRTOS.h/task.h（vTaskSuspendAll/xTaskResumeAll）；PcTests 以 stub 头替身。**
 2. 模块间不互相 include；**唯一登记例外：actuator → servo**（保护策略包装器件层，单向——策略无器件知识、器件无策略，合并不了，拆开才能各自单测；架构文档 §四.2 已同步）。需要跨模块协作时一律上浮 UserApp 编排。
 3. 静态分配，禁止 malloc；一切阻塞必须有界（超时值进 `robot_config.h`）。
 4. ISR 禁则继承 BSP 规划 §五：回调只 osSignalSet 级搬运，解析/状态机在任务侧。
@@ -50,7 +50,7 @@ S2 三处修复全部是"凭直觉写位域/命令"所致，LA 抓 MOSI 波形�
 
 ### 2.4 W2 待补：RC_Cmd 遥控协议层
 
-链路层之上缺"指令语义"层——这是车端闭环控制开跑的**硬前置**（并发语义三行字见架构文档 §5.1）。随 §3.8 落地。
+链路层之上缺"指令语义"层——这是车端闭环控制开跑的**硬前置**（并发语义三行字见架构文档 §5.1）。随 §3.8 落地。**【2026-10-06 已落地】W2.2 完成，帧布局 v2 冻结（15B/joint[5]），三行字全部实现——见 §3.8 结算。**
 
 ## 三、模块规格与 API 定稿
 
@@ -285,6 +285,17 @@ bool RC_Cmd_GetCopy(RC_Cmd_t *out);        /* 唯一读法：关调度内 memcpy
 
 **验收（W2.2）**：双板走通"摇杆→RC_Cmd 快照"全链路；estop 帧 ≤50ms 生效零输出；停发 400ms 内 valid=false 且指令向零衰减。测试台 **11=RC_CMD**。
 
+> **W2.2 结算（2026-10-06，代码+PC 侧完成；板上双板验收待跑）**：
+> - **帧布局 v2 冻结**（用户拍板）：joint[3]→**joint[5] 占满 15B**（大臂/小臂/手腕/爪开合/爪旋转，顺序=舵机 ID 序），`_Static_assert(sizeof(RCPayload_t)==ROBOT_REMOTE_PAYLOAD)` 编译期把守，两端 robot_config 的 ROBOT_CMD_* 宏同步；keys 位图含义不在 W2.2 冻结（UserApp 业务）。
+> - **API 定稿**（§五冻结表已登记）：`RC_Cmd_Init`（新增，杜绝首读垃圾态）/ `RC_Cmd_Update(f, now_ms)`（**草案补 now_ms**——时间调用方递入，PC 单测喂假时间零替身，algorithm 同款教训）/ `RC_Cmd_GetCopy`（**vTaskSuspendAll 关调度快照**，§一.1 第二例外登记；PcTests 以 stub 头替身）。映射只做归一化（÷1000、÷100 → -1.0..+1.0），物理量纲归 chassis/grab。
+> - **两级故障语义**：estop 帧立即全零 + 闩锁（松键帧解除，跨失联不清）；失联 valid 立即 false + 最后指令 300ms 线性渐停（ROBOT_CMD_DECAY_MS）；新帧整体覆盖恢复。
+> - **PC 单测**：rc_cmd 53 checks 固化语义（归一化/钳位、estop 闩锁跨失联、渐停线性三点 t=0/150/300、渐停被新帧打断、NULL 先于首帧），全量 **163 checks 全绿**。
+> - **车端接入**：remote_task 为唯一写者（帧喂 Update）+ 看门狗 NULL 第二写者驱动；s_latest 原始字节快照退役。
+> - **PTX 端**（已拍板程序化模拟先行）：rc_cmd 两文件复制（diff 校验一致），ptx_test.c 升级为**信号发生器**——12s 周期：0-8s 波形（vx 三角/vy 正弦/omega 方波/joint 各频扫描/keys 走位）/ 8-9s estop 连发 / 9-10s 恢复段 / 10-12s 静默；波形表在 ptx_test.c 头部，测试台 11 的 A1~A4 逐段对表。
+> - **测试台 11=RC_CMD** 登记（[T-RC] 前缀）：A0 init / A1 波形对表 / A2 estop≤50ms（喂入同拍快照即零） / A3 失联渐停曲线 / A4 恢复；200ms 快照行 + 1Hz 统计。**编号修正**：枚举显式 =11（初版曾误占 ACTUATOR 预留的 10，10 归还 W2.4——"只增不改"纪律的补课）。
+> - **双端零告警**：车 RAM 20.61%/FLASH 6.11%，PTX RAM 35.08%/FLASH 39.06%；顺手修 S2 起的 Spi_Ce 隐式声明（补 bsp_spi.h）。
+> - **板上双板过验（2026-10-07，A1~A4 全项）**：A1 波形逐段对表（vy 正弦轨迹/omega 方波翻转/vx 三角/五关节各频扫描/keys 走位）；A2 estop 同拍生效（vx=0 estop=1）+ **松键带链路解除**（生效→解除 996ms=设定窗长 1s）；A3 渐停曲线板上实见（末值 -0.99→-0.69→0，五关节同拍 ~70% 比例缩放线性吻合，看门狗 400ms 后 L=0 V=0）；A4 静默后恢复波形续走、闩锁清零。丢帧 gap ~1.7~3%（ACK 重传下正常 RF 水平，非阻塞）。**调试插曲**：换模块前车端 SPI 全盲（STATUS=0x7F——bit4 恒 0 位读出 1，真芯片不可能输出）——二分回退 4a4719e 同故障排除代码侧，J-Link 活体寄存器体检 MCU 侧全绿（CR1 BR=010=/8=5.25MHz 合规），最终定位=**模块 VCC-GND 短路损坏（几十欧）**，换模块即愈；新增 `tools/spi_regs.sh`（SPI2+GPIO 活体直读）入库；PTX 急停窗曾误占 [8,10s)（代码与波形表不符、恢复段缺失），已修至 [8,9s)。Remoter 整机到位后同链路复验真摇杆。
+
 ### 3.9 kinematics —— 机械臂平面运动学（2026-10-04 新增构想，机械臂硬件落地后实施）
 
 > **归属变更记录**：架构 §八与 §3.7 原裁决"IK 暂不启用（2026-10-01）"，2026-10-04 构型定案后升级为独立小节；纪律沿用 algorithm 同款——纯函数、零硬件依赖、PC 单测先行，API 未冻结（本节为构想，实机对表后定稿）。
@@ -326,7 +337,7 @@ bool Kin_LineStep(KinLine_t *ln, float j_deg[3]);       /* 每 10~20ms 节拍推
 | S6 | 10/6 | ✅ bsp_adc → power（2026-10-06 软件侧过验） | V/I 链路级对表过（V_K=0.993）；T3/T4/T6 待采样电路上板 | 8=POWER |
 | S7 | 10/7 | ✅ bsp_iic → oled（2026-10-03 板上过验） | 四项显示对表/排线拔插自愈/地址参数化探测全过（§3.5 结算） | 9=OLED |
 | W2.1 | 10/8 | ✅ algorithm 冻结 + PC 单测（2026-10-06 完成） | 边界用例全过（host 编译，110 checks 全绿） | —（PC） |
-| W2.2 | 10/8 | rc_cmd 协议层 + 帧布局冻结 | estop ≤50ms；失联向零衰减 | 11=RC_CMD |
+| W2.2 | 10/8 | ✅ rc_cmd 板上双板过验（2026-10-07，A1~A4 全项；PC 163 全绿） | estop ≤50ms；失联向零衰减 | 11=RC_CMD |
 | W2.3 | 10/8 | motor 速度环 | 阶跃响应无超调振荡（整定记录进 robot_config.h 注释） | 随 6=MOTOR |
 | W2.4 | 10/9 | actuator + alarm | 限时/缓动/卸力时序正确；故障音型正确 | 10=ACTUATOR |
 | W2.5 | 10/9 | **全测试台回归**（编号 0~11 逐项重跑）+ 交接 UserApp | 全绿；chassis/grab 开跑 | 全部 |
@@ -336,7 +347,7 @@ bool Kin_LineStep(KinLine_t *ln, float j_deg[3]);       /* 每 10~20ms 节拍推
 
 ## 五、与 UserApp 的交接约定
 
-- **冻结时点表**：remote.h ✅已冻结 / motor·servo S5 验收即冻结 / power S6 / **oled ✅S7 冻结（2026-10-03，`Oled_Init` / `Oled_Printf(x,y,...)` / `Oled_Refresh` 只修 bug 不改签名）** / **algorithm ✅W2.1 冻结（2026-10-06，`PIDInit/PIDCalculate` / `Lpf_Init/Lpf_Apply` / `Ease_Step` / user_lib 四函数，见 §3.7 结算）** / rc_cmd W2.2 / actuator·alarm W2.4 / kinematics 构想期（§3.9，API 实机对表后冻结）。冻结后只修 bug 不改签名，新需求走版本演进。
+- **冻结时点表**：remote.h ✅已冻结 / motor·servo S5 验收即冻结 / power S6 / **oled ✅S7 冻结（2026-10-03，`Oled_Init` / `Oled_Printf(x,y,...)` / `Oled_Refresh` 只修 bug 不改签名）** / **algorithm ✅W2.1 冻结（2026-10-06，`PIDInit/PIDCalculate` / `Lpf_Init/Lpf_Apply` / `Ease_Step` / user_lib 四函数，见 §3.7 结算）** / **rc_cmd ✅W2.2 帧布局与 API 冻结（2026-10-06：RCPayload 15B joint[5] / `RC_Cmd_Init` / `RC_Cmd_Update(f,now_ms)` / `RC_Cmd_GetCopy`，见 §3.8 结算；板上验收不改签名）** / actuator·alarm W2.4 / kinematics 构想期（§3.9，API 实机对表后冻结）。冻结后只修 bug 不改签名，新需求走版本演进。
 - robot_config.h 填充责任：Motor 组（SIGN/DEADBAND/PPR 实测值）、Servo 组（**器件分型表 id↔关节↔型号** + 每 id 脉宽/限位实机值 + 数字舵机**堵转阈值 STALL_CURRENT_A / 确认时长 STALL_CONFIRM_MS** + SG90 **热保护 ENERGIZE_WINDOW_MS·ENERGIZE_MAX_MS·COOLDOWN_MS**）、Power 组（V_K/I_K 标定值+日期）、Link 组（帧布局）——各模块验收时**顺手填掉占位**，不留"待实测"过夜。
 - 麦轮正逆解、机构状态机、按键映射归 UserApp（chassis/grab），本层不预置任何业务概念；IK 启用时放 algorithm，grab 接口不变。
 - 遥控器整机 = `Hardware/Remoter` 独立 CubeMX 工程（**现仅 .ioc 未生成**，W2 生成后开工），按 F103C8_PTX_T 已验证的模式接入：独立工程 + `CONFIG_REMOTE_UNIT`，复用本层 remote/rc_cmd。**F103C8_PTX_T 是 nRF24 链路测试板（S2 遗产：双板联调/载波/频偏/角色互换诊断），不承担遥控器职能。**

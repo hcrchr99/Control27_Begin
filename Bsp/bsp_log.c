@@ -3,7 +3,8 @@
  * @brief   USART2 IT 环形缓冲日志实现
  *（2026-10-05 随 F407VG 迁移：日志口由 UART4/PC10,11 改挂 USART2/PD5(TX),PA3(RX)，
  *  板上 UART4 阻塞式判别未通而 USART2 阻塞式直通——PC10 引脚占用/位置存疑，
- *  USART2 引脚确认为通；API 与 IP 同代，仅换句柄与实例宏）
+ *  USART2 引脚确认为通；API 与 IP 同代，仅换句柄与实例宏。
+ *  2026-10-07 随 F407VE 换板 RX 由 PA3 迁至 PD6，收发逻辑不变）
  */
 #include "bsp_log.h"
 #include "bsp_pin.h"

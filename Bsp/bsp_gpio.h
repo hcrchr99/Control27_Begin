@@ -36,7 +36,8 @@ typedef void (*ExtiCallback_t)(void);
  * @param  cb 回调；传 NULL 为注销。重复注册为覆盖语义，后注册生效。
  * @retval true 注册成功；false 传入非法（0 或多 bit）。
  * @note   一线一回调是契约：需要区分多个来源就注册不同的回调，
- *         不要在回调内做来源分支（PC5 与 PA11/12 分属两条中断线，坑 #9）。
+ *         不要在回调内做来源分支（KEY1/KEY2/nRF24_IRQ 同挂 EXTI15_10 一条线，
+ *         2026-10-07 F407VE 换板后 IRQ 已与按键同线，坑 #9 延伸）。
  */
 bool Exti_Attach(uint16_t gpio_pin, ExtiCallback_t cb);
 

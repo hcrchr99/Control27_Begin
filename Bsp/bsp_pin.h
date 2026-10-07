@@ -87,7 +87,9 @@ typedef struct
 #define PIN_KEY2_EXTI_IRQn      KEY2_EXTI_IRQn
 #define PIN_KEY2                ((GpioPin_t){ PIN_KEY2_GPIO_PORT, PIN_KEY2_GPIO_PIN })
 
-/* 无线模块控制脚（CSN=PC12 空闲必须为高；CE=PD2；IRQ=PC5 下降沿 EXTI） */
+/* 无线模块控制脚（CSN=PD8 空闲必须为高；CE=PD9；IRQ=PD10 下降沿 EXTI）。
+ * 2026-10-07 随 F407VE 换板由 CSN=PC12/CE=PD2/IRQ=PC5 迁入，
+ * IRQ 中断线相应由 EXTI9_5 改挂 EXTI15_10（与 KEY1/KEY2 同线） */
 #define PIN_WL_CSN_GPIO_PORT    nRF24_CSN_GPIO_Port
 #define PIN_WL_CSN_GPIO_PIN     nRF24_CSN_Pin
 #define PIN_WL_CSN              ((GpioPin_t){ PIN_WL_CSN_GPIO_PORT, PIN_WL_CSN_GPIO_PIN })
@@ -184,9 +186,10 @@ typedef struct
 
 /* ================================== 串口 ================================== */
 
-/* 调试日志口 USART2（TX=PD5 / RX=PA3，115200，纯中断收发，无 DMA）。
+/* 调试日志口 USART2（TX=PD5 / RX=PD6，115200，纯中断收发，无 DMA）。
  * 2026-10-05 随 F407VG 迁移由 UART4/PC10,11 改挂：板上 UART4 阻塞式判别
  * 未通而 USART2 直通（PC10 引脚占用/位置存疑，UART4 在 CubeMX 仍保留备用）。
+ * 2026-10-07 随 F407VE 换板 RX 由 PA3 迁至 PD6。
  * ⚠ 注意：CubeMX 句柄是 huart2（extern 自 usart.h）。
  * CMSIS 的 `USART2` 宏是外设寄存器块指针（USART_TypeDef*），与句柄是两回事，
  * 严禁强转后当句柄传给 HAL——同理 TIM4/ADC1/SPI2 等实例宏都只是寄存器块，

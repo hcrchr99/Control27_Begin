@@ -31,8 +31,9 @@ bool Exti_Attach(uint16_t gpio_pin, ExtiCallback_t cb)
 
 /* HAL weak 回调的强符号覆盖，F1 HAL 的统一 EXTI 入口
  * （F1/F4 的 HAL_GPIO_EXTI_IRQHandler 均为：清挂起 → 本函数，无上升/下降分体）。
- * KEY1/KEY2（EXTI15_10）与 nRF24 IRQ（EXTI9_5）两条共享中断线共用本表，
- * 按线号各取各的表项，天然规避混判断（坑 #9）。 */
+ * KEY1/KEY2 与 nRF24 IRQ 三者共用 EXTI15_10 一条中断线
+ * （2026-10-07 F407VE 换板后 IRQ 由 EXTI9_5 的 PC5 迁至 PD10），
+ * 本表按线号索引表项，同线多源按 GPIO_Pin 天然区分（坑 #9 延伸）。 */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
     /* 先拷贝再判空调用：即使表在极端时序下被改写，调用的也是快照 */

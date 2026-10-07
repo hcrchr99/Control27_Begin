@@ -1,6 +1,6 @@
 /**
  * @file    bsp_log.h
- * @brief   调试日志：USART2（PD5/PA3）纯中断收发 + 环形缓冲 + printf 重定向
+ * @brief   调试日志：USART2（PD5/PD6，2026-10-07 F407VE 起 RX=PD6）纯中断收发 + 环形缓冲 + printf 重定向
  *
  * 规格见《BSP层开发规划》四.2 / 五 / 七.2：
  *  - TX：Log_Printf 格式化入队，TxCpltCallback 链式推进，队列满丢弃并计数；

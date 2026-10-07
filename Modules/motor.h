@@ -27,9 +27,11 @@ typedef enum
 
 /**
  * @brief  初始化：启动 PWM（幂等）+ 全通道 DIR 复位 + duty 0 + STBY 保持低
+ *         + 速度环装参清态（PID 参数来自 robot_config.h，改参重跑本函数生效）
  * @retval true 恒成功（通道映射编译期定死，运行期无失败源）
  * @note   STBY 低时 TB6612 全桥关断，SetDuty 只改输入电平不出力——
- *         上电安全顺序由调用方保证：Init →（可选 SetDuty）→ Enable。
+ *         上电安全顺序由调用方保证：Init →（可选 SetDuty/SetSpeedRpm）→ Enable。
+ *         须在 Bsp_Init 之后调用（PID 记时取 Bsp_GetUs）
  */
 bool Motor_Init(void);
 
@@ -57,9 +59,46 @@ void Motor_Enable(void);
  */
 void Motor_Disable(void);
 
-/* —— W2 速度环（algorithm 就绪后追加，追加只增不改；S5 不实现）——
- * void  Motor_SetSpeedRpm(MotorCh_t ch, float rpm);
- * float Motor_GetSpeedRpm(MotorCh_t ch);   （Encoder_Read × ROBOT_ENC_PPR 换算）
+/* ==================== W2.3 速度环（追加只增不改；S5 开环语义不变） ====================
+ * 归属（Modules 规划 §3.1 接口冻结表 / 架构 §数据流）：速度环算法在本模块，
+ * 1kHz 节拍由 ChassisTask（业务态）或测试台 6（联验态）调用
+ * Motor_SpeedLoopUpdate 驱动，任务层只喂 ref、不碰 PWM/PID。
+ * 闭环符号约定与开环判读一致：正 ref = 正 duty 的转向（开环阶梯里
+ * "O=一致"的方向），符号修正统一走 ROBOT_MOTOR_SIGN / 电机接线，本层
+ * 不引入第二套符号。闭环前置条件：测试台 6 开环阶段四路符号交叉判读
+ * 全 O（编码器符号 × 电机方向不一致 = 正反馈自激）。
  */
+
+/**
+ * @brief  设定转速（rpm）
+ * @param  ch MOTOR_CH1..4；非法值忽略
+ * @param  rpm 设定转速，正 = 正 duty 的转向；超 ROBOT_MOTOR_SPEED_MAX_RPM
+ *         钳位；NaN 保留原值（失安全：速度指令坏数不生效）
+ * @note   ref 初值 0（Motor_Init 清零）；Motor_Disable 同时清 ref 与积分态，
+ *         重新给速度前电机保持静止。STBY 低（未 Enable）时 ref 只记账不出力
+ */
+void Motor_SetSpeedRpm(MotorCh_t ch, float rpm);
+
+/**
+ * @brief  最近一次测速窗折算的实测转速（rpm，已折算到 duty 语义符号）
+ * @note   测速窗 = ROBOT_MOTOR_SPEED_CALC_MS（默认 10ms），本接口返回窗口
+ *         平均值（100Hz 刷新），不读编码器——编码器唯一读者是
+ *         Motor_SpeedLoopUpdate（bsp_encoder"每通道一个读者"契约），
+ *         联验读数必须走本接口，直接 Encoder_Read 会抢走测速增量
+ */
+float Motor_GetSpeedRpm(MotorCh_t ch);
+
+/**
+ * @brief  最近一次施加的占空比（-1..+1，含符号；调试/整定观测用）
+ * @note   读的是本模块记账值，不读寄存器；滑行/死区清零路径也如实记账
+ */
+float Motor_GetDuty(MotorCh_t ch);
+
+/**
+ * @brief  速度环一步（测速累计 → PID → SetDuty），1kHz 调用
+ * @note   调用前须 Motor_Init（装 PID 参数/清态）；禁止在中断里调用
+ *         （PID 实例状态非重入）；STBY 低时照常计算不出力
+ */
+void Motor_SpeedLoopUpdate(void);
 
 #endif /* MOTOR_H */

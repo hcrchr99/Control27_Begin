@@ -121,6 +121,7 @@ void StartApp_TestBench_Task(void const * argument)
     else if (entry != NULL)
     {
         Log_Printf("[TB] run '%s'\r\n", entry->name);
+        Bsp_DwtReArm();     /* J-Link 断开会清 DWT 使能（坑#15），测试台先补一枪 */
         entry->init();
     }
 

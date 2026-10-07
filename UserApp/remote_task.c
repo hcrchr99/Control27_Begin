@@ -28,6 +28,7 @@ void StartApp_Remote_Task(void const * argument)
 {
     (void)argument;
     osDelay(100u);      /* 等 Bsp/Log 初始化与模块电源稳定 */
+    Bsp_DwtReArm();     /* nrf 建立时间延时走 DWT；J-Link 断开会清使能（坑#15） */
     TestBench_Yield("remote");  /* 测试台激活时让位（外设归测试台） */
 
     if (!Remote_Init(REMOTE_MODE_PRX))

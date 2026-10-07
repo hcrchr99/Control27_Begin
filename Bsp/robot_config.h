@@ -18,8 +18,15 @@
 /* ================================ Motor ================================== */
 
 #define ROBOT_MOTOR_COUNT           4
-/* 编码器：线数 x 4(四倍频) x 减速比 —— 待硬件实测 */
-#define ROBOT_ENC_PPR               (1024 * 4 * 1)
+/* 编码器三段语义宏（W2.3 自原 ROBOT_ENC_PPR 拆分，合成结果同名保留，
+ * 消费者仅 motor.c 测速换算）—— 待硬件实测：
+ * LINES = 编码器线数（铭牌/手册）；QUAD = 四倍频（TIM TI12 模式固定 ×4）；
+ * GEAR = 减速比（测的是输出轴转速，减速比乘在计数里） */
+#define ROBOT_ENC_LINES             11
+#define ROBOT_ENC_QUAD              4
+#define ROBOT_MOTOR_GEAR            21.3
+/* 每输出轴转一圈的计数总数 = 线数 × 四倍频 × 减速比 */
+#define ROBOT_ENC_PPR               (ROBOT_ENC_LINES * ROBOT_ENC_QUAD * ROBOT_MOTOR_GEAR)
 /* 输出满占空比对应 -1000..+1000 的符号约定与轮向修正 —— 待整车联调 */
 #define ROBOT_MOTOR_SIGN            1
 /* 死区：|duty| 低于此值按 0 处理（占空比小数量纲 -1.0..+1.0；占位，开环实测后填） */
@@ -36,6 +43,43 @@
 #define ROBOT_MOTOR_CH3_DIR         3
 #define ROBOT_MOTOR_CH4_PWM         4
 #define ROBOT_MOTOR_CH4_DIR         4
+
+/* ---- W2.3 速度环（M 法测速 + 位置式 PID，MaxOut=1.0f 直喂 Motor_SetDuty）----
+ * 整定纪律（Modules 规划）：先 P 后 I 再 D；每改一次参数在下面补一行：
+ *   日期 | 工况 | Kp/Ki/Kd | 现象（超调/振荡/稳态误差）
+ *   （待整定）
+ * Kd 初值 0：速度反馈是测速窗的阶梯值，微分项会放大这种量化噪声，出现
+ * 振荡后再引入并配微分滤波 */
+/* M 法测速窗（ms）：每 1ms 读一次编码器增量累计，每 CALC_MS 折算一次 rpm。
+ * 窗长=量化与滞后的折中：937PPR(11线×4×21.3) 下 10ms 窗 1count=6.4rpm
+ * （30rpm 目标仅 4.7 counts/窗，台阶 21%，扰动过强），20ms 减半到 3.2rpm */
+#define ROBOT_MOTOR_SPEED_CALC_MS       20
+/* 设定转速钳位（rpm）—— 待按电机铭牌实测收边 */
+#define ROBOT_MOTOR_SPEED_MAX_RPM       300.0f
+/* PID 参数（输出量纲 = duty -1..+1）—— 整定记录：
+ *   2026-10-07 | Kp=0.02 Ki=0 | CH4 ref±30/60 | bang-bang 极限环：系统增益
+ *   实测 ≈200rpm/duty（20%→40rpm，50%→113rpm），Kp 过大使 duty 顶满 ±1.0
+ *   来回猛撞，实测 ±150rpm 振荡
+ *   2026-10-07 | Kp=0.005 Ki=0.05 | 稳但稳态差大（60rpm 稳在 38）——根因
+ *   不是参数：DWT CYCCNT 被 LAR 锁（坑#15）dt 钳 1µs 积分等效死亡；
+ *   解锁后复测：±30/±60 阶跃零稳态误差（60 稳 57.6~60.8），+60 首拍 ~17%
+ *   超调 200ms 内落定、无振荡——待正式过验
+ * ⚠ GEAR/LINES 已实测：11 线 ×4 ×21.3 = 937.2 counts/输出圈 */
+#define ROBOT_MOTOR_SPEED_KP            0.005f
+#define ROBOT_MOTOR_SPEED_KI            0.05f
+#define ROBOT_MOTOR_SPEED_KD            0.0f
+/* 积分累计上限（duty 量纲）：抗启动冲击/堵转甩积分 */
+#define ROBOT_MOTOR_SPEED_INTEGRAL_LIMIT 0.5f
+/* 微分低通时间常数（秒），Kd≠0 时生效 */
+#define ROBOT_MOTOR_SPEED_D_LPF_RC      0.01f
+/* 电机↔编码器通道映射（值 1..4 = bsp_encoder.h 的 ENC_CH1..4；同 PWM/DIR
+ * 纪律：实机布线核对后只改此处，代码零改动） */
+#define ROBOT_MOTOR_CH1_ENC         1
+#define ROBOT_MOTOR_CH2_ENC         2
+#define ROBOT_MOTOR_CH3_ENC         3
+#define ROBOT_MOTOR_CH4_ENC         4
+/* 测试台 6 速度阶跃序列（rpm，四路同步阶跃）：验收判据 = 阶跃无超调振荡 */
+#define ROBOT_MOTOR_SPEED_TEST_LIST { 30.0f, 60.0f, -30.0f, 0.0f }
 
 /* ================================ Servo ================================== */
 
@@ -157,6 +201,6 @@
  * 1=GPIO(S1) 2=ENCODER(S3) 3=SPI(S2) 4=PWM(S4) 5=REMOTE(S2 链路收发)
  * 6=MOTOR(S5) 7=SERVO(S5) 8=POWER(S6) 9=OLED(S7) 10=ACTUATOR(预留 W2.4)
  * 11=RC_CMD(W2.2)。激活时业务任务自动让位。 */
-#define ROBOT_TEST_BENCH            11
+#define ROBOT_TEST_BENCH            6
 
 #endif /* ROBOT_CONFIG_H */

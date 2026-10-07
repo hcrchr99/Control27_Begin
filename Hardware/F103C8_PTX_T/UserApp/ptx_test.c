@@ -1,25 +1,52 @@
 /**
  * @file    ptx_test.c
- * @brief   S2 双板联调测试发送端（F103C8 最小系统板）：100Hz 发 15B 递增计数包
+ * @brief   F103C8 测试发送端：W2.2 信号发生器（车端测试台 11=RC_CMD 的对表基准）
  *
  * 入口经 freertos.c 的 StartDefaultTask USER CODE 区转发到 Ptx_Test_Main
  * （defaultTask 是 CubeMX 生成的强符号，不能像车端任务那样用弱符号覆盖）。
- * 代码路径与未来遥控器一致：完整 Bsp 移植版 + Modules/remote（PTX 模式），
- * IRQ 经 Exti_Attach 注册、osSignalSet 唤醒 SendPacket——车端收包率统计的
- * 发送基准即本固件的发包序号 frame[0]（uint8 回绕，掉包看序号跳变）。
+ * 代码路径与未来遥控器一致：完整 Bsp 移植版 + Modules/remote（PTX 模式，
+ * rc_cmd.h 的 RCPayload_t 即协议帧），IRQ 经 Exti_Attach 注册、osSignalSet
+ * 唤醒 SendPacket——车端收包率统计的发送基准即 seq 字段（uint8 回绕）。
  *
- * 车端对侧验收（UserApp/remote_acceptance.c 主循环）：
- *  - 递增计数连续无跳变；收包率 = 车端 GetRxCount / 本端 attempts ≥95%；
- *  - 停发（按住本板复位）→ 车端 link 400ms 内翻 false，恢复后自动回 true。
+ * ============================ 波形表（车端对表用） ============================
+ * 12s 一个周期，相位 = Bsp_GetMs() 相对上电起点取模：
+ *   [0, 8s)    正常发射，100Hz：
+ *                vx     三角波 ±1000，10s 周期（4s 时过零、8s 到 +1000 附近）
+ *                vy     正弦 ±800，4s 周期（32 点查表）
+ *                omega  方波 ±500，4s 周期（2s 正 2s 负）
+ *                joint[k] 三角波 ±100，周期 (3+k)s（k=0..4 → 3/4/5/6/7s）
+ *                keys   位走灯 0x0001 << (秒数 % 16)，每秒走一位
+ *   [8s, 9s)   estop 窗口：flags bit0=1 连发（其余字段照填，车端强制归零）
+ *   [9s, 10s)  正常发射（松键恢复段，车端 estop 应回 false、波形续走）
+ *   [10s, 12s) 静默：完全不发包（车端看门狗 400ms 翻转 + 指令 300ms 渐停窗口）
+ * 发送端纪律：每帧整帧清零再填。测试板无按键无 ADC——急停触发即程序化窗口，
+ * 真按键归 Remoter 整机（未排期）。
+ *
+ * 遗留能力保留：载波测试（对端看 rpd）、角色互换频偏扫描（ROBOT_DIAG_ROLE_SWAP）。
  */
 #include "cmsis_os.h"
+#include <string.h>
 #include "bsp_sys.h"
 #include "bsp_log.h"
+#include "bsp_spi.h"    /* Spi_Ce——S2 起靠隐式声明碰巧工作的历史隐患，显式化 */
+#include "rc_cmd.h"
 #include "remote.h"
 #include "nrf24.h"
 #include "robot_config.h"
 
 void Ptx_Test_Main(void const * argument);
+
+/* 三角波：period_ms 周期在 [-amp, +amp] 间线性往返（phase_ms 为全局相位） */
+static int32_t Tri_(uint32_t period_ms, uint32_t phase_ms, int32_t amp)
+{
+    uint32_t p = phase_ms % period_ms;
+    uint32_t half = period_ms / 2u;
+    if (p < half)
+    {
+        return -amp + (int32_t)((2u * (uint32_t)amp * p) / half);
+    }
+    return amp - (int32_t)((2u * (uint32_t)amp * (p - half)) / half);
+}
 
 /* RF 物理层体检：连续载波 5 秒（附录 C：CONT_WAVE + PLL_LOCK + CE 常高）。
  * 对端 PRX 在这 5 秒内看 rpd：rpd=1 ⇒ 天线/距离/频段物理层全通；
@@ -52,7 +79,7 @@ void Ptx_Test_Main(void const * argument)
         for (;;) { osDelay(1000u); }
     }
     Log_Printf("[PTX] init OK: %s CH%d\r\n",
-               ROBOT_DIAG_ROLE_SWAP ? "诊断互换:本板收(PRX)" : "15B @ 100Hz 发送",
+               ROBOT_DIAG_ROLE_SWAP ? "诊断互换:本板收(PRX)" : "信号发生器 12s 周期 @100Hz",
                (int)ROBOT_RF_CHANNEL);
 
 #if ROBOT_DIAG_ROLE_SWAP
@@ -126,19 +153,47 @@ void Ptx_Test_Main(void const * argument)
 
     CarrierTest();
 
-    uint8_t  frame[ROBOT_REMOTE_PAYLOAD] = {0};
+    /* ==================== 信号发生器主循环（波形表见文件头） ==================== */
+    static const int16_t SIN32[32] = {
+        0, 156, 306, 444, 566, 665, 739, 785, 800, 785, 739, 665, 566, 444, 306, 156,
+        0, -156, -306, -444, -566, -665, -739, -785, -800, -785, -739, -665, -566, -444, -306, -156,
+    };
+
     uint32_t seq = 0u;
     uint32_t attempts = 0u;
     uint32_t ack_ok = 0u;
     uint32_t last_stat_ms = Bsp_GetMs();
+    uint32_t t0 = Bsp_GetMs();
 
     for (;;)
     {
-        frame[0] = (uint8_t)(++seq);    /* 发送序号（车端打印 frame[0] 对账） */
-        attempts++;
-        if (Remote_SendPacket(frame, (uint8_t)sizeof frame))
+        uint32_t phase = (Bsp_GetMs() - t0) % 12000u;
+
+        if (phase < 10000u)     /* [10s,12s) 静默：完全不发包 */
         {
-            ack_ok++;
+            RCPayload_t f;
+            memset(&f, 0, sizeof f);        /* 发送端纪律：整帧清零再填 */
+
+            f.vx = (int16_t)Tri_(10000u, phase, 1000);
+            f.vy = SIN32[(phase % 4000u) * 32u / 4000u];
+            f.omega = (int16_t)(((phase % 4000u) < 2000u) ? 500 : -500);
+            for (int k = 0; k < ROBOT_CMD_JOINT_COUNT; k++)
+            {
+                f.joint[k] = (int8_t)Tri_((uint32_t)(3000 + 1000 * k), phase, 100);
+            }
+            f.keys = (uint16_t)(0x0001u << ((phase / 1000u) % 16u));
+            if (phase >= 8000u && phase < 9000u)    /* [8s,9s) estop 窗口连发；
+                                                     * [9s,10s) 松键恢复段（车端验闩锁解除） */
+            {
+                f.flags |= RC_FLAG_ESTOP;
+            }
+            f.seq = (uint8_t)(++seq);       /* seq 只在实发帧上递增 */
+
+            attempts++;
+            if (Remote_SendPacket((uint8_t *)&f, (uint8_t)sizeof f))
+            {
+                ack_ok++;
+            }
         }
 
         uint32_t now = Bsp_GetMs();

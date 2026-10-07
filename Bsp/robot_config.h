@@ -139,12 +139,24 @@
 /* 车端各任务间通信的统一命令包结构尺寸占位，随 UserApp 二期细化 */
 #define ROBOT_CMD_MAX_SIZE          16
 
+/* ---- RC_Cmd 遥控协议层（W2.2 §3.8 帧布局冻结；两端 robot_config 必须同步）---- */
+/* 逻辑量满幅：vx/vy/omega 取 -1000..+1000（发送端钳位，接收端 ÷满幅归一化） */
+#define ROBOT_CMD_RANGE             1000
+/* 关节速率指令满幅：joint[] 取 -100..+100 */
+#define ROBOT_CMD_JOINT_RANGE       100
+/* 关节指令路数（= RCPayload_t.joint[] 元素数，与五舵机 ROBOT_SERVO_COUNT 对齐；
+ * 改动会打破 15B 帧长静态断言，属协议变更须两端同时改） */
+#define ROBOT_CMD_JOINT_COUNT       5
+/* 失联渐停时长：指令从失联检测时刻起线性滑落到零（防甩矿渐停，非猛刹车） */
+#define ROBOT_CMD_DECAY_MS          300
+
 /* ================================ TestBench =============================== */
 
 /* 板级测试台选择（取值见 Tests/test_bench.h 枚举）：0=关闭（业务固件常态，
  * 测试任务只打心跳+栈高水位）；新板 bring-up 时按依赖序逐项改选：
  * 1=GPIO(S1) 2=ENCODER(S3) 3=SPI(S2) 4=PWM(S4) 5=REMOTE(S2 链路收发)
- * 6=MOTOR(S5) 7=SERVO(S5) 8=POWER(S6) 9=OLED(S7)。激活时业务任务自动让位。 */
-#define ROBOT_TEST_BENCH            7
+ * 6=MOTOR(S5) 7=SERVO(S5) 8=POWER(S6) 9=OLED(S7) 10=ACTUATOR(预留 W2.4)
+ * 11=RC_CMD(W2.2)。激活时业务任务自动让位。 */
+#define ROBOT_TEST_BENCH            11
 
 #endif /* ROBOT_CONFIG_H */

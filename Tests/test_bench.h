@@ -30,6 +30,8 @@ typedef enum
     TEST_BENCH_SERVO,       /* S5：中位/扫描/五路卸力手掰（PM10S+SG90） */
     TEST_BENCH_POWER,       /* S6：V/I/P/J 打印对表 + 双 rank 同步性 */
     TEST_BENCH_OLED,        /* S7：四项显示对表 + 拔插排线自愈 + 地址参数化探测 */
+    TEST_BENCH_RC_CMD = 11, /* W2.2：rc_cmd 全链路（对照 PTX 信号发生器 12s 周期）。
+                             * 显式 =11：10 预留给 ACTUATOR（W2.4，编号只增不改） */
 } TestBenchId_t;
 
 /**

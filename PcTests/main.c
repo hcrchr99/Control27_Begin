@@ -11,6 +11,7 @@ int s_fail;
 void TestPid_Run(void);
 void TestUserLib_Run(void);
 void TestLpfEase_Run(void);
+void TestRcCmd_Run(void);
 
 int main(void)
 {
@@ -18,6 +19,7 @@ int main(void)
     TestPid_Run();
     TestUserLib_Run();
     TestLpfEase_Run();
+    TestRcCmd_Run();
     printf("\n%d checks, %d failed\n", s_total, s_fail);
     return (s_fail == 0) ? 0 : 1;
 }

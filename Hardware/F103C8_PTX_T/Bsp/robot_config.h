@@ -7,8 +7,8 @@
  *  - Modules/UserApp 只允许 include bsp_xxx.h 与本文件，禁止直接碰 HAL。
  *  - 车端/遥控器端共用 Modules/remote，用 CONFIG_REMOTE_UNIT 区分两端工程。
  */
-#ifndef F103RC_ROBOT_CONFIG_H
-#define F103RC_ROBOT_CONFIG_H
+#ifndef F103C8_PTX_ROBOT_CONFIG_H
+#define F103C8_PTX_ROBOT_CONFIG_H
 
 /* ================================ 编译开关 ================================ */
 
@@ -77,6 +77,17 @@
 /* 车端各任务间通信的统一命令包结构尺寸占位，随 UserApp 二期细化 */
 #define ROBOT_CMD_MAX_SIZE          16
 
+/* ---- RC_Cmd 遥控协议层（W2.2 §3.8 帧布局冻结；两端 robot_config 必须同步）---- */
+/* 逻辑量满幅：vx/vy/omega 取 -1000..+1000（发送端钳位，接收端 ÷满幅归一化） */
+#define ROBOT_CMD_RANGE             1000
+/* 关节速率指令满幅：joint[] 取 -100..+100 */
+#define ROBOT_CMD_JOINT_RANGE       100
+/* 关节指令路数（= RCPayload_t.joint[] 元素数，与车端五舵机对齐；
+ * 改动会打破 15B 帧长静态断言，属协议变更须两端同时改） */
+#define ROBOT_CMD_JOINT_COUNT       5
+/* 失联渐停时长（接收端语义；发送端仅随协议文件引用） */
+#define ROBOT_CMD_DECAY_MS          300
+
 /* ================================ TestBench =============================== */
 
 /* 板级测试台选择（取值见 Tests/test_bench.h 枚举）：0=关闭（业务固件常态，
@@ -84,4 +95,4 @@
  * 1=GPIO(S1) 2=ENCODER(S3) 3=SPI(S2)。激活时业务任务自动让位。 */
 #define ROBOT_TEST_BENCH            0
 
-#endif /* F103RC_ROBOT_CONFIG_H */
+#endif /* F103C8_PTX_ROBOT_CONFIG_H */

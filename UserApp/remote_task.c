@@ -1,26 +1,27 @@
 /**
  * @file    remote_task.c
- * @brief   车端遥控接收服务任务（remote_acceptance.c 验收完毕后的正式形态）
+ * @brief   车端遥控接收服务任务：PRX 服务循环 + RC_Cmd 唯一写者
  *
- * 职责：驱动 Modules/remote 的 PRX 服务循环，消费遥控帧并维护链路统计。
- * 诊断项（A1 总线体检/A2 回写回读/A3 寄存器 dump/逐包打印）已迁至
- * Tests/test_remote.c（测试台 TEST_BENCH_REMOTE 项），本文件只保留业务路径。
+ * 职责：驱动 Modules/remote 的 PRX 服务循环，把收到的帧交给 rc_cmd
+ * （Modules/remote/rc_cmd.c，W2.2）解析为定量指令快照；看门狗超时期间
+ * 以 NULL 帧驱动 Update（架构 §5.1 的"第二写者"），维持两级故障语义。
+ * 诊断项（A1 体检/A2 回写/A3 dump/逐包打印）在 Tests/test_remote.c
+ * （测试台 5），rc_cmd 全链路验收在 Tests/test_rc_cmd.c（测试台 11）。
  *
- * 二期接缝：控制逻辑（速度/按键解析）在主循环的 ReadPacket 处接入；
- * s_latest/s_total 即最新帧快照与累计计数（同一任务读写，无锁）。
+ * 并发契约（架构 §5.1）：本任务是 RC_Cmd 的唯一写者；消费者（chassis/grab）
+ * 一律走 RC_Cmd_GetCopy 快照，禁止触碰本模块内部状态。
  */
 #include "cmsis_os.h"
-#include <string.h>
 #include "bsp_log.h"
 #include "bsp_sys.h"
+#include "rc_cmd.h"
 #include "remote.h"
 #include "robot_config.h"
 #include "test_bench.h"
 
 void StartApp_Remote_Task(void const * argument);
 
-/* 最新帧快照（UserApp 二期控制逻辑的读取点） */
-static uint8_t  s_latest[ROBOT_REMOTE_PAYLOAD];
+/* 累计收帧数（1Hz 统计用；帧内容消费已移交 rc_cmd） */
 static uint32_t s_total;
 
 void StartApp_Remote_Task(void const * argument)
@@ -36,30 +37,40 @@ void StartApp_Remote_Task(void const * argument)
         Log_Printf("[RX-TASK] Remote_Init FAIL: SPI/接线/共地排查\r\n");
         for (;;) { osDelay(1000u); }
     }
-    Log_Printf("[RX-TASK] init OK CH%d ack=%d\r\n",
-               (int)ROBOT_RF_CHANNEL, (int)ROBOT_RF_AUTO_ACK);
+    RC_Cmd_Init();      /* 指令态清零：valid=false，消费者在首帧前拿到安全快照 */
+    Log_Printf("[RX-TASK] init OK CH%d ack=%d rc_cmd=%uB/%u关节\r\n",
+               (int)ROBOT_RF_CHANNEL, (int)ROBOT_RF_AUTO_ACK,
+               (unsigned)sizeof(RCPayload_t), (unsigned)ROBOT_CMD_JOINT_COUNT);
 
-    uint8_t  frame[ROBOT_REMOTE_PAYLOAD];
+    RCPayload_t frame;
     uint32_t last_stat_ms = Bsp_GetMs();
 
     for (;;)
     {
         Remote_Service();
 
-        while (Remote_ReadPacket(frame, (uint8_t)sizeof frame))
+        /* 唯一写者路径：收到的帧 → rc_cmd 解析（pack(1) 结构体整帧直传） */
+        while (Remote_ReadPacket((uint8_t *)&frame, (uint8_t)sizeof frame))
         {
-            /* 二期接缝：此处把 frame 交给控制逻辑（速度/按键解析） */
-            memcpy(s_latest, frame, sizeof s_latest);
+            RC_Cmd_Update(&frame, Bsp_GetMs());
             s_total++;
         }
 
         uint32_t now = Bsp_GetMs();
+        if (!Remote_IsLinkUp())
+        {
+            /* 第二写者：看门狗超时，写失效值并驱动 300ms 渐停（防甩矿） */
+            RC_Cmd_Update(NULL, now);
+        }
+
         if ((now - last_stat_ms) >= 1000u)
         {
             static uint32_t s_last_count;
-            Log_Printf("[RX-TASK] %upkts/s total=%u link=%d\r\n",
+            RC_Cmd_t snap;
+            RC_Cmd_GetCopy(&snap);
+            Log_Printf("[RX-TASK] %upkts/s total=%u link=%d valid=%d estop=%d\r\n",
                        (unsigned)(s_total - s_last_count), (unsigned)s_total,
-                       (int)Remote_IsLinkUp());
+                       (int)Remote_IsLinkUp(), (int)snap.valid, (int)snap.estop);
             s_last_count = s_total;
             last_stat_ms = now;
         }

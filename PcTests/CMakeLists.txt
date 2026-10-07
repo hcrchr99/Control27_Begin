@@ -15,22 +15,28 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 set(ALGO_DIR "${CMAKE_CURRENT_LIST_DIR}/../Modules/algorithm")
+set(REMOTE_DIR "${CMAKE_CURRENT_LIST_DIR}/../Modules/remote")
 
 add_executable(pc_tests
     "${ALGO_DIR}/pid.c"
     "${ALGO_DIR}/lpf.c"
     "${ALGO_DIR}/ease.c"
     "${ALGO_DIR}/user_lib.c"
+    "${REMOTE_DIR}/rc_cmd.c"
+    "freertos_stub/freertos_stub.c"
     "bsp_sys_stub.c"
     "test_pid.c"
     "test_user_lib.c"
     "test_lpf_ease.c"
+    "test_rc_cmd.c"
     "main.c"
 )
 
 target_include_directories(pc_tests PRIVATE
     "${ALGO_DIR}"
+    "${REMOTE_DIR}"
     "${CMAKE_CURRENT_LIST_DIR}/../Bsp"
+    "${CMAKE_CURRENT_LIST_DIR}/freertos_stub"
     "${CMAKE_CURRENT_LIST_DIR}"
 )
 

@@ -40,6 +40,8 @@ void Test_Power_Init(void);
 void Test_Power_Poll(void);
 void Test_Oled_Init(void);
 void Test_Oled_Poll(void);
+void Test_RcCmd_Init(void);
+void Test_RcCmd_Poll(void);
 
 static const TestEntry_t s_table[] = {
     { TEST_BENCH_GPIO,    "gpio",    Test_Gpio_Init,    Test_Gpio_Poll    },
@@ -51,6 +53,7 @@ static const TestEntry_t s_table[] = {
     { TEST_BENCH_SERVO,   "servo",   Test_Servo_Init,   Test_Servo_Poll   },
     { TEST_BENCH_POWER,   "power",   Test_Power_Init,   Test_Power_Poll   },
     { TEST_BENCH_OLED,    "oled",    Test_Oled_Init,    Test_Oled_Poll    },
+    { TEST_BENCH_RC_CMD,  "rc_cmd",  Test_RcCmd_Init,   Test_RcCmd_Poll   },
 };
 
 bool TestBench_Active(void)

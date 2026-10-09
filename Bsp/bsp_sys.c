@@ -18,6 +18,19 @@
  * 使能即恢复正常（2026-10-07 板上实测，测试台 12 快窗比值≈1.0000）。
  * ⚠ 换用老修订 die（无 LAR）时此写无害；J-Link 在场/离场不再影响。 */
 
+/* ---- CYCCNT 软件回绕扩展 ----
+ * CYCCNT 是 32 位 @168MHz，每 25.57 秒转满归零——Bsp_GetUs 若直接换算
+ * 会是 25.6s 周期的锯齿（注释曾称"71.6 分钟回绕"是漏算 CYCCNT 本体回绕，
+ * 坑#15 家族第二案）。手法同 bsp_encoder 16bit 扩展：每次调用做无符号
+ * 差分累进（前提：相邻两次调用间隔 < 25.57s——现全部调用方均为控制环/
+ * 日志级频率，远满足）。
+ * ⚠ 累计器必须 64 位：u32 累计器自身 25.57s 就溢出，等于没修
+ * （2026-10-09 双口对审实测：JF 流每 25.60s 一谷，即 u32 累计器溢出）。
+ * 对外 u32 µs 返回值 71.6 分钟才回绕，跨此点的差分靠调用方无符号减法
+ * 自动正确，与扩展前契约一致 */
+static uint32_t s_cyc_last;
+static uint64_t s_cyc_ext;
+
 void Bsp_Init(void)
 {
     /* 时钟自检：SystemCoreClock 与 RCC 实际时钟源不符则停机闪烁 LED2（PC13，低电平亮）。
@@ -47,12 +60,17 @@ void Bsp_DwtReArm(void)
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->CYCCNT = 0u;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+    s_cyc_last = 0u;        /* 计数器清零须同步扩展快照，否则首次 GetUs 差分爆表 */
 }
 
 uint32_t Bsp_GetUs(void)
 {
-    /* 64 位换算避免 CYCCNT 直接除造成精度损失；返回值回绕约 71.6 分钟 */
-    return (uint32_t)((uint64_t)DWT->CYCCNT * 1000000u / SystemCoreClock);
+    uint32_t now = DWT->CYCCNT;
+    s_cyc_ext += (uint32_t)(now - s_cyc_last);  /* 无符号差分：25.57s 回绕自动正确 */
+    s_cyc_last = now;
+    /* 64 位累计 → 除法降为 64/32（__aeabi_uldivmod，控制环频率可承受）；
+     * 返回值 71.6 分钟才回绕 */
+    return (uint32_t)(s_cyc_ext * 1000000u / SystemCoreClock);
 }
 
 uint32_t Bsp_GetMs(void)

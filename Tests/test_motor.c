@@ -34,6 +34,7 @@
 #include "bsp_encoder.h"
 #include "bsp_sys.h"
 #include "bsp_log.h"
+#include "bsp_vofa.h"
 
 /* 增量符号与 duty 符号交叉判定：'O'=一致 'X'=相反 ' '=无判据 */
 static char SignVerdict(int32_t inc, float duty)
@@ -92,9 +93,20 @@ static void ApplyLadderStep(uint8_t idx)
 /* 速度阶段每拍：1kHz 突发 + 200ms 读数打印 + 2s 进下一阶跃 */
 static void SpeedPhaseTick(void)
 {
+    uint8_t cur = (uint8_t)(g_step - SPEED_FIRST);  /* 当前档（0..SPEED_N-1） */
+
     for (uint8_t i = 0u; i < 10u; i++)      /* 补齐 1kHz：10ms 轮询 × 10 次 */
     {
         Motor_SpeedLoopUpdate();
+        /* VOFA+ JustFloat：CH4 {ref, 实测, duty, Iout} 四通道 1kHz 流，
+         * 忙丢帧不阻塞控制环；通道顺序即 VOFA+ 通道 0..3 */
+        float vofa[4] = {
+            s_speed_steps[cur],
+            Motor_GetSpeedRpm(TEST_MOTOR_CH),
+            Motor_GetDuty(TEST_MOTOR_CH),
+            Motor_GetIout(TEST_MOTOR_CH),
+        };
+        (void)Bsp_Vofa_SendFloats(vofa, 4u);
         osDelay(1u);
     }
 
@@ -136,6 +148,7 @@ void Test_Motor_Init(void)
 {
     Encoder_InitAll();
     Motor_Init();       /* STBY 保持低：不出力，安全（速度环同时装参清态） */
+    Bsp_Vofa_Init();    /* UART4 提速 921600，VOFA+ JustFloat 整定流专用 */
     /* 打印固件编译进的速度环参数（排查"改了参数没重编/没烧上"） */
     Log_Printf("[T-MOTOR] 速度环参数 Kp=%ld/10000 Ki=%ld/10000 CALC=%ums "
                "PPR=%ld\r\n",

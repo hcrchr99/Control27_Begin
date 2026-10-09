@@ -95,6 +95,23 @@ float Motor_GetSpeedRpm(MotorCh_t ch);
 float Motor_GetDuty(MotorCh_t ch);
 
 /**
+ * @brief  速度环 PID 的积分累计量（duty 量纲；整定观测用，看积分顶没顶限）
+ */
+float Motor_GetIout(MotorCh_t ch);
+
+/**
+ * @brief  运行时改速度环 PID 参数（整定台用；写全部四路，立即生效）
+ * @note   不回写 robot_config.h——整定终值人工抄回配置（配置是上电缺省，
+ *         运行时改动只活在本次上电）
+ */
+void Motor_SetTune(float kp, float ki, float kd);
+
+/**
+ * @brief  读当前速度环 PID 参数（整定台 SHOW 回显用）
+ */
+void Motor_GetTune(float *kp, float *ki, float *kd);
+
+/**
  * @brief  速度环一步（测速累计 → PID → SetDuty），1kHz 调用
  * @note   调用前须 Motor_Init（装 PID 参数/清态）；禁止在中断里调用
  *         （PID 实例状态非重入）；STBY 低时照常计算不出力

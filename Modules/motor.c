@@ -27,6 +27,7 @@
 #include "bsp_pwm.h"
 #include "bsp_gpio.h"
 #include "bsp_encoder.h"
+#include "bsp_sys.h"
 #include "bsp_log.h"
 #include "pid.h"
 #include "robot_config.h"
@@ -55,17 +56,19 @@ static const uint8_t s_enc_ch[MOTOR_CH_COUNT] = {
     ROBOT_MOTOR_CH1_ENC, ROBOT_MOTOR_CH2_ENC, ROBOT_MOTOR_CH3_ENC, ROBOT_MOTOR_CH4_ENC,
 };
 
-/* 测速换算系数（rpm/count），Motor_Init 算一次：
- * rpm = (Δcount ÷ PPR) ÷ T(秒) × 60，T = CALC_MS/1000
- *   → rpm = Δcount × (60 × 1000) ÷ (PPR × CALC_MS)
- * 4096PPR、10ms 窗下 ≈ 1.46 rpm/count（1ms 直接差分 ≈ 14.6，量化过粗） */
-static float s_rpm_per_count;
+/* 测速窗：拍数只做"到点"门，折算一律用 Bsp_GetUs 实测窗长——
+ * ⚠ 曾按"拍数×1ms"固定系数折算，但任务节拍≠1ms（Poll 内 10 拍 osDelay
+ * 对齐 + 调度器周期，实际窗长≈40ms），读数整体偏快 2 倍，且窗长随调度
+ * 漂移时读数锯齿波动（整定台"周期性掉速抖动"一案）。按真实时间折算后
+ * 调度怎么抖读数都物理准确（2026-10-09 表显 190 ↔ A 相 625Hz 实测定案） */
+static uint32_t s_win_start_us;                 /* 窗起点微秒（Bsp_GetUs） */
 
 static PIDInstance s_speed_pid[MOTOR_CH_COUNT]; /* 每路一个实例（W2.1 PID） */
 static float s_ref_rpm[MOTOR_CH_COUNT];         /* 设定转速（duty 语义符号） */
 static float s_speed_rpm[MOTOR_CH_COUNT];       /* 最近一窗折算的实测转速 */
 static int32_t s_win_acc[MOTOR_CH_COUNT];       /* 测速窗内编码器增量累计 */
 static uint16_t s_win_tick;                     /* 窗内已累计的毫拍数 */
+static uint32_t s_evt_last_us;                  /* 黑匣子限频时间戳 */
 static bool s_speed_inited;                     /* Motor_Init 已装参（防裸调闭环） */
 
 static void SpeedLoopInit(void)
@@ -93,8 +96,7 @@ static void SpeedLoopInit(void)
         s_win_acc[i] = 0;
     }
     s_win_tick = 0u;
-    s_rpm_per_count = 60.0f * 1000.0f /
-                      ((float)ROBOT_ENC_PPR * (float)ROBOT_MOTOR_SPEED_CALC_MS);
+    s_win_start_us = Bsp_GetUs();
     s_speed_inited = true;
 }
 
@@ -153,6 +155,28 @@ void Motor_SetDuty(MotorCh_t ch, float duty)
 float Motor_GetDuty(MotorCh_t ch)
 {
     return (ch < MOTOR_CH_COUNT) ? s_duty_dbg[(uint8_t)ch] : 0.0f;
+}
+
+float Motor_GetIout(MotorCh_t ch)
+{
+    return (ch < MOTOR_CH_COUNT) ? s_speed_pid[(uint8_t)ch].Iout : 0.0f;
+}
+
+void Motor_SetTune(float kp, float ki, float kd)
+{
+    for (uint8_t i = 0u; i < MOTOR_CH_COUNT; i++)
+    {
+        s_speed_pid[i].Kp = kp;
+        s_speed_pid[i].Ki = ki;
+        s_speed_pid[i].Kd = kd;
+    }
+}
+
+void Motor_GetTune(float *kp, float *ki, float *kd)
+{
+    *kp = s_speed_pid[0].Kp;
+    *ki = s_speed_pid[0].Ki;
+    *kd = s_speed_pid[0].Kd;
 }
 
 void Motor_Enable(void)
@@ -219,10 +243,40 @@ void Motor_SpeedLoopUpdate(void)
     }
     if (s_win_tick >= ROBOT_MOTOR_SPEED_CALC_MS)
     {
-        for (uint8_t i = 0u; i < MOTOR_CH_COUNT; i++)
+        /* rpm = (Δcount ÷ PPR) ÷ T(秒) × 60，T = Bsp_GetUs 实测窗长：
+         * 拍数≠毫秒（任务节拍漂移），按真实时间折算调度抖动不进读数 */
+        uint32_t now_us = Bsp_GetUs();
+        float t_s = (float)(now_us - s_win_start_us) * 1e-6f;
+        s_win_start_us = now_us;
+        if (t_s > 0.001f)                   /* 防异常窗：1ms 下限保护 */
         {
-            s_speed_rpm[i] = (float)s_win_acc[i] * s_rpm_per_count * (float)ROBOT_MOTOR_SIGN;
-            s_win_acc[i] = 0;
+            float k = 60.0f / ((float)ROBOT_ENC_PPR * t_s);
+            for (uint8_t i = 0u; i < MOTOR_CH_COUNT; i++)
+            {
+                float rpm = (float)s_win_acc[i] * k * (float)ROBOT_MOTOR_SIGN;
+
+                /* 事件黑匣子：宽触发（读数较上窗掉超三成+10rpm，或涨超三成
+                 * +10rpm）——渐变型深谷每窗跳变小，陡阈值会漏。acc 定性：
+                 * ≈0=编码器真无脉冲；正常而折算错=软件；负大=反向脉冲 */
+                float prev = s_speed_rpm[i];
+                bool dip = (rpm < prev * 0.7f - 10.0f);
+                bool jump = (rpm > prev * 1.3f + 10.0f);
+                if (prev > 20.0f && (dip || jump) &&
+                    (now_us - s_evt_last_us) > 300000u)
+                {
+                    long d10 = (long)(s_duty_dbg[i] * 100.0f);
+                    Log_Printf("[EVT] CH%u acc=%ld T=%lums rpm=%ld<- %ld "
+                               "duty=%ld%% Iout=%ld/1000 ref=%ld\r\n",
+                               (unsigned)(i + 1u), (long)s_win_acc[i],
+                               (unsigned long)(t_s * 1000.0f),
+                               (long)rpm, (long)prev, d10,
+                               (long)(s_speed_pid[i].Iout * 1000.0f),
+                               (long)s_ref_rpm[i]);
+                    s_evt_last_us = now_us;
+                }
+                s_speed_rpm[i] = rpm;
+                s_win_acc[i] = 0;
+            }
         }
         s_win_tick = 0u;
     }

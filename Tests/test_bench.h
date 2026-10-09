@@ -32,6 +32,8 @@ typedef enum
     TEST_BENCH_OLED,        /* S7：四项显示对表 + 拔插排线自愈 + 地址参数化探测 */
     TEST_BENCH_RC_CMD = 11, /* W2.2：rc_cmd 全链路（对照 PTX 信号发生器 12s 周期）。
                              * 显式 =11：10 预留给 ACTUATOR（W2.4，编号只增不改） */
+    TEST_BENCH_TUNE = 13,   /* W2.3：速度环独立整定台（串口命令调参+1kHz JustFloat
+                             * 回传+启动自检防正反馈；12 曾为 DWT 终审台，结案清理） */
 } TestBenchId_t;
 
 /**

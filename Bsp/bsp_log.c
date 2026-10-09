@@ -8,6 +8,7 @@
  */
 #include "bsp_log.h"
 #include "bsp_pin.h"
+#include "bsp_vofa.h"
 #include "usart.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -208,6 +209,12 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         log_rx_head = (uint16_t)((log_rx_head + 1u) % LOG_RX_SIZE);
         (void)HAL_UART_Receive_IT(huart, &log_rx_byte, 1u);
     }
+    else if (huart->Instance == UART4)
+    {
+        /* VOFA 整定命令口（bsp_vofa）：喂行装配器，续挂在函数内部；
+         * 字节从 bsp_vofa 自己的缓冲取（本回调无参，别代传他口缓冲） */
+        Bsp_Vofa_OnRxIrq();
+    }
 }
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
@@ -222,6 +229,15 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
         {
             __HAL_UART_CLEAR_OREFLAG(huart);
             (void)HAL_UART_Receive_IT(huart, &log_rx_byte, 1u);
+        }
+    }
+    else if (huart->Instance == UART4)
+    {
+        /* VOFA 口 ORE 自愈：与 USART2 同语义（同代 UART IP） */
+        if (huart->RxState == HAL_UART_STATE_READY)
+        {
+            __HAL_UART_CLEAR_OREFLAG(huart);
+            Bsp_Vofa_RxArm();
         }
     }
 }

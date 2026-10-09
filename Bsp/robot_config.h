@@ -22,9 +22,9 @@
  * 消费者仅 motor.c 测速换算）—— 待硬件实测：
  * LINES = 编码器线数（铭牌/手册）；QUAD = 四倍频（TIM TI12 模式固定 ×4）；
  * GEAR = 减速比（测的是输出轴转速，减速比乘在计数里） */
-#define ROBOT_ENC_LINES             11
+#define ROBOT_ENC_LINES             13
 #define ROBOT_ENC_QUAD              4
-#define ROBOT_MOTOR_GEAR            21.3
+#define ROBOT_MOTOR_GEAR            30.0
 /* 每输出轴转一圈的计数总数 = 线数 × 四倍频 × 减速比 */
 #define ROBOT_ENC_PPR               (ROBOT_ENC_LINES * ROBOT_ENC_QUAD * ROBOT_MOTOR_GEAR)
 /* 输出满占空比对应 -1000..+1000 的符号约定与轮向修正 —— 待整车联调 */
@@ -47,29 +47,32 @@
 /* ---- W2.3 速度环（M 法测速 + 位置式 PID，MaxOut=1.0f 直喂 Motor_SetDuty）----
  * 整定纪律（Modules 规划）：先 P 后 I 再 D；每改一次参数在下面补一行：
  *   日期 | 工况 | Kp/Ki/Kd | 现象（超调/振荡/稳态误差）
- *   （待整定）
  * Kd 初值 0：速度反馈是测速窗的阶梯值，微分项会放大这种量化噪声，出现
  * 振荡后再引入并配微分滤波 */
-/* M 法测速窗（ms）：每 1ms 读一次编码器增量累计，每 CALC_MS 折算一次 rpm。
- * 窗长=量化与滞后的折中：937PPR(11线×4×21.3) 下 10ms 窗 1count=6.4rpm
- * （30rpm 目标仅 4.7 counts/窗，台阶 21%，扰动过强），20ms 减半到 3.2rpm */
+/* M 法测速窗（拍）：每拍读一次编码器增量累计，满 CALC_MS 拍折算一次 rpm。
+ * ⚠ 折算按 Bsp_GetUs 实测窗长，拍数≠毫秒（任务节拍≠1kHz）——曾按固定
+ * 系数折算致读数整体×2 且随调度漂移锯齿抖动（2026-10-09 表显 190 ↔
+ * A相 625Hz 定案）。本值只是窗长下限：越大越平滑越钝，嫌钝可缩只改此宏 */
 #define ROBOT_MOTOR_SPEED_CALC_MS       20
 /* 设定转速钳位（rpm）—— 待按电机铭牌实测收边 */
 #define ROBOT_MOTOR_SPEED_MAX_RPM       300.0f
 /* PID 参数（输出量纲 = duty -1..+1）—— 整定记录：
  *   2026-10-07 | Kp=0.02 Ki=0 | CH4 ref±30/60 | bang-bang 极限环：系统增益
- *   实测 ≈200rpm/duty（20%→40rpm，50%→113rpm），Kp 过大使 duty 顶满 ±1.0
- *   来回猛撞，实测 ±150rpm 振荡
+ *   实测 ≈200rpm/duty（旧电源 20%→40rpm，50%→113rpm），Kp 过大使 duty 顶满
+ *   ±1.0 来回猛撞，实测 ±150rpm 振荡
  *   2026-10-07 | Kp=0.005 Ki=0.05 | 稳但稳态差大（60rpm 稳在 38）——根因
  *   不是参数：DWT CYCCNT 被 LAR 锁（坑#15）dt 钳 1µs 积分等效死亡；
  *   解锁后复测：±30/±60 阶跃零稳态误差（60 稳 57.6~60.8），+60 首拍 ~17%
- *   超调 200ms 内落定、无振荡——待正式过验
- * ⚠ GEAR/LINES 已实测：11 线 ×4 ×21.3 = 937.2 counts/输出圈 */
-#define ROBOT_MOTOR_SPEED_KP            0.005f
-#define ROBOT_MOTOR_SPEED_KI            0.05f
+ *   超调 200ms 内落定、无振荡
+ *   2026-10-09 | Kp=0.0058 Ki=0.09 Kd=0 | 换电源模块重标（增益≈305rpm/duty）+
+ *   修测速窗×2/CYCCNT 回绕两坑后，单电机空载粗标（CH4，ref 110~150）；
+ *   ⚠ 空载值，实车负载下须细调
+ * ⚠ LINES/GEAR 已重标：13 线 ×4 ×减速比 30 = 1560 counts/输出圈 */
+#define ROBOT_MOTOR_SPEED_KP            0.0058f
+#define ROBOT_MOTOR_SPEED_KI            0.09f
 #define ROBOT_MOTOR_SPEED_KD            0.0f
 /* 积分累计上限（duty 量纲）：抗启动冲击/堵转甩积分 */
-#define ROBOT_MOTOR_SPEED_INTEGRAL_LIMIT 0.5f
+#define ROBOT_MOTOR_SPEED_INTEGRAL_LIMIT 0.65f
 /* 微分低通时间常数（秒），Kd≠0 时生效 */
 #define ROBOT_MOTOR_SPEED_D_LPF_RC      0.01f
 /* 电机↔编码器通道映射（值 1..4 = bsp_encoder.h 的 ENC_CH1..4；同 PWM/DIR
@@ -154,13 +157,13 @@
  * 对表更新：最终 V_K = 分压比 × 0.993，并更新标定日期 */
 #define ROBOT_POWER_V_K             0.993f
 /* 电流链路系数（PA4 电流采样运放）—— 待采样电路就绪后同法对表 */
-#define ROBOT_POWER_I_K             1.0f
+#define ROBOT_POWER_I_K             0.989f
 /* 关节电流路数（双 rank2 的 IN12/IN13 两路，k=0 大臂 / k=1 小臂——器件归属仅注释，
  * BSP 侧见 bsp_pin.h）。消费方 Modules/power → actuator（堵转判定注入） */
 #define ROBOT_POWER_JOINT_COUNT     2
 /* 关节电流换算系数（两路共用；若实测两路增益不同再拆为 _LIST）——
  * 量程 0~3A 级采样电阻+运放方案待硬件定，先占位 */
-#define ROBOT_POWER_JOINT_I_K       1.0f
+#define ROBOT_POWER_JOINT_I_K       0.993f
 
 /* ================================== IIC =================================== */
 
@@ -194,13 +197,25 @@
 /* 失联渐停时长：指令从失联检测时刻起线性滑落到零（防甩矿渐停，非猛刹车） */
 #define ROBOT_CMD_DECAY_MS          300
 
+/* ================================ Vofa =================================== */
+
+/* VOFA+ JustFloat 整定数据流（UART4/PC10-PC11，与日志 USART2 分口）：
+ * 波特率——1kHz×4float+帧尾=20B/帧，921600 下 IT 发送占空比 ~22%；
+ * 适配器（CH343）与 VOFA+ 端口设置须一致。通道数在 VOFA+ 协议设置里填 4 */
+#define ROBOT_VOFA_BAUD             921600
+#define ROBOT_VOFA_MAX_CH           8
+/* 命令行缓冲（整定命令最长如 "P0.0050"/"R-300.0"） */
+#define ROBOT_VOFA_RX_LINE          24
+
 /* ================================ TestBench =============================== */
 
 /* 板级测试台选择（取值见 Tests/test_bench.h 枚举）：0=关闭（业务固件常态，
  * 测试任务只打心跳+栈高水位）；新板 bring-up 时按依赖序逐项改选：
  * 1=GPIO(S1) 2=ENCODER(S3) 3=SPI(S2) 4=PWM(S4) 5=REMOTE(S2 链路收发)
- * 6=MOTOR(S5) 7=SERVO(S5) 8=POWER(S6) 9=OLED(S7) 10=ACTUATOR(预留 W2.4)
- * 11=RC_CMD(W2.2)。激活时业务任务自动让位。 */
-#define ROBOT_TEST_BENCH            6
+ * 6=MOTOR(S5 开环+闭环阶梯) 7=SERVO(S5) 8=POWER(S6) 9=OLED(S7)
+ * 10=ACTUATOR(预留 W2.4) 11=RC_CMD(W2.2) 13=TUNE(W2.3 速度环整定台，
+ * 串口命令调参+1kHz 回传+启动自检；12 曾为 DWT 终审台已清理不用)。
+ * 激活时业务任务自动让位。 */
+#define ROBOT_TEST_BENCH            13
 
 #endif /* ROBOT_CONFIG_H */

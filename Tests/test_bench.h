@@ -30,8 +30,10 @@ typedef enum
     TEST_BENCH_SERVO,       /* S5：中位/扫描/五路卸力手掰（PM10S+SG90） */
     TEST_BENCH_POWER,       /* S6：V/I/P/J 打印对表 + 双 rank 同步性 */
     TEST_BENCH_OLED,        /* S7：四项显示对表 + 拔插排线自愈 + 地址参数化探测 */
+    TEST_BENCH_ACTUATOR = 10, /* W2.4：actuator 缓动/堵转/热保护 + alarm 声光联验。
+                               * 显式 =10：编号只增不改（W2.2 时即预留本项） */
     TEST_BENCH_RC_CMD = 11, /* W2.2：rc_cmd 全链路（对照 PTX 信号发生器 12s 周期）。
-                             * 显式 =11：10 预留给 ACTUATOR（W2.4，编号只增不改） */
+                             * 显式 =11：与 10 同理防占位漂移 */
     TEST_BENCH_TUNE = 13,   /* W2.3：速度环独立整定台（串口命令调参+1kHz JustFloat
                              * 回传+启动自检防正反馈；12 曾为 DWT 终审台，结案清理） */
 } TestBenchId_t;

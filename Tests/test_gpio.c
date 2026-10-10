@@ -9,6 +9,7 @@
  */
 #include "test_bench.h"
 #include "bsp_gpio.h"
+#include "bsp_pwm.h"
 #include "bsp_pin.h"
 #include "bsp_sys.h"
 #include "bsp_log.h"
@@ -25,7 +26,7 @@ void Test_Gpio_Init(void)
     Exti_Attach(PIN_KEY1_GPIO_PIN, Key1Callback);
     Exti_Attach(PIN_KEY2_GPIO_PIN, Key2Callback);
     Gpio_Reset(PIN_LED1);
-    Gpio_Reset(PIN_ALARM);
+    Pwm_SetDuty(PWM_TIM14_CH1, 0.0f);       /* 蜂鸣器静音 */
     Log_Printf("[T-GPIO] KEY1=亮LED1+短鸣 KEY2=灭\r\n");
 }
 
@@ -35,21 +36,21 @@ void Test_Gpio_Poll(void)
     {
         s_key1_evt = false;
         Gpio_Set(PIN_LED1);
-        Gpio_Set(PIN_ALARM);                    /* 有源蜂鸣器，高电平鸣响 */
-        s_beep_off_ms = Bsp_GetMs() + 100u;     /* 短鸣 100ms */
+        Pwm_SetDuty(PWM_TIM14_CH1, 0.5f);   /* 无源蜂鸣器：50% 方波鸣响（音调=TIM14 时基） */
+        s_beep_off_ms = Bsp_GetMs() + 100u; /* 短鸣 100ms */
         Log_Printf("[T-GPIO] KEY1 down\r\n");
     }
     if (s_key2_evt)
     {
         s_key2_evt = false;
         Gpio_Reset(PIN_LED1);
-        Gpio_Reset(PIN_ALARM);
+        Pwm_SetDuty(PWM_TIM14_CH1, 0.0f);
         Log_Printf("[T-GPIO] KEY2 down\r\n");
     }
     if (s_beep_off_ms != 0u &&
         (int32_t)(Bsp_GetMs() - s_beep_off_ms) >= 0)
     {
-        Gpio_Reset(PIN_ALARM);
+        Pwm_SetDuty(PWM_TIM14_CH1, 0.0f);
         s_beep_off_ms = 0u;
     }
 }

@@ -113,6 +113,8 @@ int main(void)
   MX_UART4_Init();
   MX_TIM9_Init();
   MX_USART2_UART_Init();
+  MX_TIM10_Init();
+  MX_TIM14_Init();
   /* USER CODE BEGIN 2 */
   /* ADC方案B: 双同步+连续转换+DMA循环由硬件自动搬运, 不需要DMA中断.
    * CubeMX 在双同步模式下强制使能 DMA2_Stream0 中断(界面置灰不可关),

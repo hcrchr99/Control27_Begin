@@ -56,7 +56,8 @@ void Bsp_Vofa_OnRxIrq(void);
 /**
  * @brief  非阻塞取一条完整命令行（\r 或 \n 结尾，不含行尾符）
  * @retval true=取到（out 以 \0 结尾） false=暂无
- * @note   上一行未取走时新行丢弃（整定命令低频，正常不丢）
+ * @note   仅任务侧调用（内部关中断短临界区与 RX 中断互斥）；
+ *         上一行未取走时新行丢弃（整定命令低频，正常不丢）
  */
 bool Bsp_Vofa_ReadLine(char *out, uint8_t maxlen);
 

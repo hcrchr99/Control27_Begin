@@ -110,6 +110,28 @@
  * 非阻塞计时，与 bsp_pwm"上电 0 脉宽"构成两级安全链） */
 #define ROBOT_SERVO_CENTER_SETTLE_MS    300
 
+/* ---- W2.4 actuator 执行器保护层（缓动斜坡 + 堵转判据 + SG90 热保护）----
+ * 下列为实例默认参数，实例化时拷进 ActConfig_t 可逐实例覆盖。
+ * ⚠ kinematics 坑#12 双重斜坡纪律：直线插补节拍是时间主人，ease_dps
+ * 必须 > 插补峰值角速度（Kin_LineStart 校验违例拒绝） */
+/* 缓动限速（°/s）：角度指令突变时每秒至多挪这么多，规划 100~150 */
+#define ROBOT_ACT_EASE_DPS              120.0f
+/* 堵转电流阈值（A）：仅注入了电流源的实例生效（ID1 大臂 / ID2 小臂，
+ * 绑 Power_GetJointCurrent）——量程 0~3A 级，占位待实测
+ * （与 ROBOT_POWER_JOINT_I_K 标定同窗进行，规格见 Modules 规划 §五） */
+#define ROBOT_ACT_STALL_CURRENT_A       1.5f
+/* 堵转确认时长（ms）：电流超阈值持续此时长才坐实堵转（瞬时冲击不误触发），
+ * 触发 = 立即卸力 + Act_IsStalled 锁存 + ALARM_ACT_STALL */
+#define ROBOT_ACT_STALL_CONFIRM_MS      300u
+/* SG90 热保护滑动窗（30×1s 桶）：窗内供电累计 ≥ _MAX_MS 置
+ * Act_NeedsCooldown——只报告不强制卸力，拍板时机在 grab（规划 §3.3：
+ * 触发即卸力掉矿代价 < 烧机，由业务层执行）。仅推荐爪开合（ID4）使能；
+ * 大臂/小臂以电流判据为准、手腕/爪旋转业务性保持，均禁用（_MAX_MS=0） */
+#define ROBOT_ACT_ENERGIZE_WINDOW_MS    30000u
+#define ROBOT_ACT_ENERGIZE_MAX_MS       20000u
+/* 冷却时长（ms）：NeedsCooldown 置位后连续此时长未供电自动解除并清累计器 */
+#define ROBOT_ACT_COOLDOWN_MS           5000u
+
 /* ================================== SPI =================================== */
 
 /* 单次字节级传输超时（HAL_SPI_TransmitReceive 参数）。SPI2 实际 5.25MHz
@@ -212,10 +234,11 @@
 /* 板级测试台选择（取值见 Tests/test_bench.h 枚举）：0=关闭（业务固件常态，
  * 测试任务只打心跳+栈高水位）；新板 bring-up 时按依赖序逐项改选：
  * 1=GPIO(S1) 2=ENCODER(S3) 3=SPI(S2) 4=PWM(S4) 5=REMOTE(S2 链路收发)
- * 6=MOTOR(S5 开环+闭环阶梯) 7=SERVO(S5) 8=POWER(S6) 9=OLED(S7)
- * 10=ACTUATOR(预留 W2.4) 11=RC_CMD(W2.2) 13=TUNE(W2.3 速度环整定台，
- * 串口命令调参+1kHz 回传+启动自检；12 曾为 DWT 终审台已清理不用)。
- * 激活时业务任务自动让位。 */
-#define ROBOT_TEST_BENCH            13
+ * 6=MOTOR(S5 开环+闭环阶梯) 7=SERVO(S5/舵机标定台：W 手动脉宽找端点)
+ * 8=POWER(S6) 9=OLED(S7)
+ * 10=ACTUATOR(W2.4 缓动/堵转/热保护 + alarm 声光联验，串口命令 A/R/S/L)
+ * 11=RC_CMD(W2.2) 13=TUNE(W2.3 速度环整定台，串口命令调参+1kHz 回传+启动
+ * 自检；12 曾为 DWT 终审台已清理不用)。激活时业务任务自动让位。 */
+#define ROBOT_TEST_BENCH            10
 
 #endif /* ROBOT_CONFIG_H */

@@ -17,6 +17,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(ALGO_DIR "${CMAKE_CURRENT_LIST_DIR}/../Modules/algorithm")
 set(REMOTE_DIR "${CMAKE_CURRENT_LIST_DIR}/../Modules/remote")
 set(USERAPP_DIR "${CMAKE_CURRENT_LIST_DIR}/../UserApp")
+set(MODULES_DIR "${CMAKE_CURRENT_LIST_DIR}/../Modules")
 
 add_executable(pc_tests
     "${ALGO_DIR}/pid.c"
@@ -26,14 +27,17 @@ add_executable(pc_tests
     "${REMOTE_DIR}/rc_cmd.c"
     "${USERAPP_DIR}/chassis_ctrl.c"
     "${USERAPP_DIR}/grab_ctrl.c"
+    "${MODULES_DIR}/actuator.c"
     "freertos_stub/freertos_stub.c"
     "bsp_sys_stub.c"
+    "servo_stub.c"
     "test_pid.c"
     "test_user_lib.c"
     "test_lpf_ease.c"
     "test_rc_cmd.c"
     "test_chassis_ctrl.c"
     "test_grab_ctrl.c"
+    "test_actuator.c"
     "main.c"
 )
 
@@ -41,6 +45,7 @@ target_include_directories(pc_tests PRIVATE
     "${ALGO_DIR}"
     "${REMOTE_DIR}"
     "${USERAPP_DIR}"
+    "${MODULES_DIR}"
     "${CMAKE_CURRENT_LIST_DIR}/../Bsp"
     "${CMAKE_CURRENT_LIST_DIR}/freertos_stub"
     "${CMAKE_CURRENT_LIST_DIR}"

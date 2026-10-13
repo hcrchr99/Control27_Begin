@@ -143,7 +143,7 @@ static void HandleCommand(const char *line)
         Log_Printf(" rpm\r\n");
         break;
     case 'O': case 'o':
-        if (line[1] == 'N')
+        if (line[1] == 'N' || line[1] == 'n')   /* ON 全大小写兼容（W2.3 复盘遗留修复） */
         {
             Motor_Enable();
             s_enabled = true;

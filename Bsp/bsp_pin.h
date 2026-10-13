@@ -33,29 +33,30 @@ typedef struct
 #define PIN_LED2_GPIO_PIN       LED2_Pin
 #define PIN_LED2                ((GpioPin_t){ PIN_LED2_GPIO_PORT, PIN_LED2_GPIO_PIN })
 
-/* 蜂鸣器（PC4） */
-#define PIN_ALARM_GPIO_PORT     Alarm_GPIO_Port
-#define PIN_ALARM_GPIO_PIN      Alarm_Pin
-#define PIN_ALARM               ((GpioPin_t){ PIN_ALARM_GPIO_PORT, PIN_ALARM_GPIO_PIN })
+/* 蜂鸣器：无源件（2026-10-10 起 TIM14 CH1/PA7 方波驱动，见下方 PWM 组的
+ * PIN_PWM14_*；响=50% duty / 停=0，音调频率由 TIM14 PSC/ARR 的 .ioc 时基定）。
+ * 原方案 PC4 GPIO 高电平直驱仅适用于有源件，PIN_ALARM 宏随 CubeMX 重配删除 */
 
 /* 功率级待机控制（PA10，TB6612 STBY；CubeMX 复位电平 = 低 = 关断） */
 #define PIN_PWR_STBY_GPIO_PORT  STBY_GPIO_Port
 #define PIN_PWR_STBY_GPIO_PIN   STBY_Pin
 #define PIN_PWR_STBY            ((GpioPin_t){ PIN_PWR_STBY_GPIO_PORT, PIN_PWR_STBY_GPIO_PIN })
 
-/* 方向 GPIO ×8（PB0/PB1/PA6/PA7/PC0/PC1/PD3/PD4）
+/* 方向 GPIO ×8（PB0/PB1/PC4/PC5/PC0/PC1/PD3/PD4）
  * 每 2 个一组：xA=xIN1, xB=xIN2；组序号与电机序号的对应关系
  * 由硬件按布线最终决定（README 备注序号未定，勿在 BSP 固化映射）。
  * 2026-09-28 变更：原 PB4/PB5 组让位给编码器3，方向组迁至 PA6/PA7；
- * 2026-10-05 随 F407VG 迁移引脚等位保留。 */
-#define PIN_DIR1A_GPIO_PORT     GPIOB
+ * 2026-10-05 随 F407VG 迁移引脚等位保留；
+ * 2026-10-10 变更：DIR2 组 PA6/PA7 → PC4/PC5（PA7 让位 TIM14 CH1 蜂鸣器方波，
+ * CubeMX 侧该两脚为无标签 GPIO_Output，宏在此直接写端口）。 */
+#define PIN_DIR1A_GPIO_PORT     GPIOE
 #define PIN_DIR1A_GPIO_PIN      GPIO_PIN_0
-#define PIN_DIR1B_GPIO_PORT     GPIOB
+#define PIN_DIR1B_GPIO_PORT     GPIOE
 #define PIN_DIR1B_GPIO_PIN      GPIO_PIN_1
-#define PIN_DIR2A_GPIO_PORT     GPIOA
-#define PIN_DIR2A_GPIO_PIN      GPIO_PIN_6
-#define PIN_DIR2B_GPIO_PORT     GPIOA
-#define PIN_DIR2B_GPIO_PIN      GPIO_PIN_7
+#define PIN_DIR2A_GPIO_PORT     GPIOE
+#define PIN_DIR2A_GPIO_PIN      GPIO_PIN_3
+#define PIN_DIR2B_GPIO_PORT     GPIOE
+#define PIN_DIR2B_GPIO_PIN      GPIO_PIN_4
 #define PIN_DIR3A_GPIO_PORT     GPIOC
 #define PIN_DIR3A_GPIO_PIN      GPIO_PIN_0
 #define PIN_DIR3B_GPIO_PORT     GPIOC
@@ -133,6 +134,15 @@ typedef struct
 #define PIN_PWM50HZ_US_PER_STEP 2u      /* 20ms 周期 / (ARR+1)=10000 步；
                                              * 2026-10-02 步距 20µs→2µs（舵机指令
                                              * 分辨率 1.8°→0.18°/步） */
+
+/* 蜂鸣器方波组（TIM14 CH1，PA7，APB1 定时器 84MHz；用途：无源蜂鸣器激励，
+ * 只用占空比 50%/0% 控制响停，脉宽接口对它无意义）。2026-10-10 新增：
+ * ARR 为 CubeMX 默认 65535（PSC=0 → 84M/65536≈1282Hz）——无源蜂鸣器典型
+ * 谐振 2.7~4kHz，嫌音调低在 .ioc 改 TIM14 时基并同步本值。
+ * ⚠ ARR 为 CubeMX 对账值：改 .ioc 时基必须同步本文件（S5 教训） */
+#define PIN_PWM14_TIM           TIM14
+#define PIN_PWM14_CH1           TIM_CHANNEL_1   /* PA7（原 DIR2B 脚，DIR2 迁 PC4/PC5） */
+#define PIN_PWM14_ARR           65535u
 
 /* ================================ 编码器输入 =============================== */
 

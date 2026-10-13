@@ -45,4 +45,33 @@ void Grab_Init(Grab_State_t *g, const float deg0[ROBOT_CMD_JOINT_COUNT]);
 void Grab_Update(Grab_State_t *g, const float rate_cmd[ROBOT_CMD_JOINT_COUNT],
                  uint32_t now_ms);
 
+/* ---- 姿态宏（关节空间直线插补，2026-10-12 版本演进新增）----
+ * 典型场景：初始位（臂折叠贴车）↔ 展开位（爪竖直抬起），服务
+ * "抓矿→回储存位→放矿→再展开"循环节拍。与坐标模式（kinematics 逆解）
+ * 的分工：姿态宏走关节空间，路径确定、永不因逆解不可达被拒——爪尖轨迹
+ * 是弧线但初始↔展开这对姿态的弧线近似竖直（Δx≈19mm/Δz≈68mm，中点弧差
+ * <5mm）。爪开合/爪旋转不归宏管：目标表只含臂三关节，爪两路在 Start 时
+ * 冻结为当前值（防误开合）。
+ *
+ * 分工纪律：Step 只出速率——deg 的唯一写者仍是 Grab_Update（速率喂给它
+ * 积分），软限位钳停/急停保持/失联渐停语义因此全部免费继承。 */
+typedef struct
+{
+    bool active;                        /* true = 姿态运动进行中 */
+    float tgt[ROBOT_CMD_JOINT_COUNT];   /* 目标角（已钳软限位；爪两路=冻结值） */
+    float dps;                          /* 关节角速度上限 */
+    uint32_t last_ms;                   /* 拍间 dt 来源 */
+    bool started;                       /* 首拍只对表不出速率 */
+} Grab_PoseMove_t;
+
+/** 起步：记录目标（越软限位部分钳入限位，同 Grab_Init 规则）与速度上限 */
+void Grab_PoseMoveStart(Grab_PoseMove_t *m, const float tgt[ROBOT_CMD_JOINT_COUNT],
+                        float dps, uint32_t now_ms);
+
+/** 节拍推进：输出本拍归一化速率（无超调，正好在 dps·dt 内走完剩余量），
+ *  调用方把 rate_out 喂 Grab_Update；全部关节进入目标 ±0.05° 即自动收摊。
+ *  @return true = 运动进行中（rate_out 有效）；false = 已到位/未起步 */
+bool Grab_PoseMoveStep(Grab_PoseMove_t *m, const Grab_State_t *g,
+                       uint32_t now_ms, float rate_out[ROBOT_CMD_JOINT_COUNT]);
+
 #endif /* GRAB_CTRL_H */

@@ -82,3 +82,90 @@ void Grab_Update(Grab_State_t *g, const float rate_cmd[ROBOT_CMD_JOINT_COUNT],
         g->deg[i] = d;
     }
 }
+
+/* ---- 姿态宏（设计说明见 grab_ctrl.h）---- */
+
+void Grab_PoseMoveStart(Grab_PoseMove_t *m, const float tgt[ROBOT_CMD_JOINT_COUNT],
+                        float dps, uint32_t now_ms)
+{
+    if (m == NULL)
+    {
+        return;
+    }
+    for (int i = 0; i < ROBOT_CMD_JOINT_COUNT; i++)
+    {
+        float d = (tgt != NULL) ? tgt[i] : 0.0f;
+        if (d < kLimitMin[i])
+        {
+            d = kLimitMin[i];
+        }
+        if (d > kLimitMax[i])
+        {
+            d = kLimitMax[i];
+        }
+        m->tgt[i] = d;
+    }
+    m->dps = (dps > 0.0f && dps <= ROBOT_APP_JOINT_RATE_DPS) ? dps
+                                                             : ROBOT_APP_JOINT_RATE_DPS;
+    m->last_ms = now_ms;
+    m->started = false;
+    m->active = true;
+}
+
+bool Grab_PoseMoveStep(Grab_PoseMove_t *m, const Grab_State_t *g,
+                       uint32_t now_ms, float rate_out[ROBOT_CMD_JOINT_COUNT])
+{
+    if (m == NULL || !m->active)
+    {
+        return false;
+    }
+    for (int i = 0; i < ROBOT_CMD_JOINT_COUNT; i++)
+    {
+        rate_out[i] = 0.0f;
+    }
+
+    /* 首拍只对表（dt 未知，先记时基下一拍才动） */
+    if (!m->started)
+    {
+        m->last_ms = now_ms;
+        m->started = true;
+        return true;
+    }
+
+    /* uint32 无符号减法：时基回绕安全（同 Grab_Update 手法） */
+    uint32_t dt_ms = now_ms - m->last_ms;
+    m->last_ms = now_ms;
+    if (dt_ms == 0u)
+    {
+        return true;                    /* 同拍重入：保持 */
+    }
+    float step_s = (float)dt_ms * 0.001f;
+    float max_step_deg = m->dps * step_s;
+    /* 速率折算：rate×满幅DPS×dt 恰等于本拍要走的度数 → 无超调精确收敛 */
+    float k = 1.0f / (ROBOT_APP_JOINT_RATE_DPS * step_s);
+
+    bool done = true;
+    for (int i = 0; i < ROBOT_CMD_JOINT_COUNT; i++)
+    {
+        float err = m->tgt[i] - g->deg[i];
+        if (err > max_step_deg)
+        {
+            err = max_step_deg;
+        }
+        if (err < -max_step_deg)
+        {
+            err = -max_step_deg;
+        }
+        rate_out[i] = err * k;
+        /* 剩余量大于半格舵机分辨率才算没到（0.05° 远小于死区 0.4°，肉眼不可分） */
+        if (err > 0.05f || err < -0.05f)
+        {
+            done = false;
+        }
+    }
+    if (done)
+    {
+        m->active = false;              /* 末拍输出贴脸小步长后收摊 */
+    }
+    return true;
+}

@@ -183,17 +183,48 @@ class Harness:
         if isinstance(state, dict) and isinstance(state.get("cfg"), dict) \
                 and state["cfg"] != self.last_cfg:
             self.last_cfg = state["cfg"]
-            broadcast(json.dumps({"type": "config",
-                                  "chassis": {"vx_max_mps": state["cfg"].get("vx_max_mps"),
-                                              "vy_max_mps": state["cfg"].get("vy_max_mps"),
-                                              "w_max_radps": state["cfg"].get("w_max_radps")},
-                                  "joint": {"rate_dps": state["cfg"].get("joint_rate_dps")}}))
+            broadcast(json.dumps(self._cfg_msg(state["cfg"])))
         if self.verbose and (self.n_cmd % 100 == 0):
             print("  [harness] %d 帧 | C链角 %s | 轮速rpm %s" % (
                 self.n_cmd,
                 state.get("deg") if state else "?",
                 state.get("rpm") if state else "?"))
         return out_c[2:], state
+
+    @staticmethod
+    def _cfg_msg(cfg):
+        """C 链 cfg → 网页 config 下行（满量程 + 预设点位，robot_config 单一样源）"""
+        out = {"type": "config",
+               "chassis": {"vx_max_mps": cfg.get("vx_max_mps"),
+                           "vy_max_mps": cfg.get("vy_max_mps"),
+                           "w_max_radps": cfg.get("w_max_radps")},
+               "joint": {"rate_dps": cfg.get("joint_rate_dps")}}
+        if cfg.get("presets"):
+            out["presets"] = cfg["presets"]
+        return out
+
+    def feed_arm_target(self, msg):
+        """网页坐标模式请求 → T 行喂 C 链 → 回下行 json（与 feed_rc 同锁同配对）"""
+        try:
+            m = int(msg.get("mode", 0))
+            a = float(msg.get("a", 0) or 0)
+            b = float(msg.get("b", 0) or 0)
+            p1 = float(msg.get("p1", 0) or 0)
+        except (TypeError, ValueError):
+            return None
+        t_ms = int(time.monotonic() * 1000) & 0xFFFFFFFF
+        line = "T,%d,%d,%g,%g,%g\n" % (t_ms, m, a, b, p1)
+        with self.lock:
+            try:
+                self.p.stdin.write(line)
+                self.p.stdin.flush()
+                out_c = self.p.stdout.readline().strip()
+                self.p.stdout.readline()      # S 行同拍取走，行配对不失调
+            except Exception:
+                return None
+        if not out_c.startswith("C "):
+            return None
+        return out_c[2:]
 
     def compare_telemetry(self, msg):
         """孪生积分出的关节角 vs C 链 Grab 目标角（rad→deg+90°，爪[3]跳过）"""
@@ -242,13 +273,7 @@ def _client(conn, addr):
                                          "proto": 1, "server": "rm-begin-userapp-bridge",
                                          "uplink": "binary-rc-15B"}))
         if HARNESS is not None and HARNESS.last_cfg:      # 迟连上的网页补发车端配置
-            cfg = HARNESS.last_cfg
-            _ws_send(conn, lock, json.dumps(
-                {"type": "config",
-                 "chassis": {"vx_max_mps": cfg.get("vx_max_mps"),
-                             "vy_max_mps": cfg.get("vy_max_mps"),
-                             "w_max_radps": cfg.get("w_max_radps")},
-                 "joint": {"rate_dps": cfg.get("joint_rate_dps")}}))
+            _ws_send(conn, lock, json.dumps(HARNESS._cfg_msg(HARNESS.last_cfg)))
         while True:
             got = _ws_recv(conn)
             if got is None:
@@ -273,6 +298,10 @@ def _client(conn, addr):
                     continue
                 if msg.get("type") == "telemetry":
                     HARNESS.compare_telemetry(msg)
+                elif msg.get("type") == "arm_target":     # 坐标模式请求（网页面板）
+                    out = HARNESS.feed_arm_target(msg)
+                    if out is not None:
+                        broadcast(out)
     except Exception as e:
         print("  [ws] 异常:", e)
     finally:

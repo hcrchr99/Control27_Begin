@@ -24,6 +24,7 @@ add_executable(pc_tests
     "${ALGO_DIR}/ease.c"
     "${ALGO_DIR}/user_lib.c"
     "${REMOTE_DIR}/rc_cmd.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../Modules/kinematics.c"
     "${USERAPP_DIR}/chassis_ctrl.c"
     "${USERAPP_DIR}/grab_ctrl.c"
     "freertos_stub/freertos_stub.c"
@@ -34,12 +35,14 @@ add_executable(pc_tests
     "test_rc_cmd.c"
     "test_chassis_ctrl.c"
     "test_grab_ctrl.c"
+    "test_kinematics.c"
     "main.c"
 )
 
 target_include_directories(pc_tests PRIVATE
     "${ALGO_DIR}"
     "${REMOTE_DIR}"
+    "${CMAKE_CURRENT_LIST_DIR}/../Modules"
     "${USERAPP_DIR}"
     "${CMAKE_CURRENT_LIST_DIR}/../Bsp"
     "${CMAKE_CURRENT_LIST_DIR}/freertos_stub"

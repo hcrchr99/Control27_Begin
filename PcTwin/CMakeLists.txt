@@ -20,6 +20,7 @@ set(ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
 add_executable(twin_harness
     "twin_harness.c"
     "${ROOT}/Modules/remote/rc_cmd.c"
+    "${ROOT}/Modules/kinematics.c"
     "${ROOT}/UserApp/chassis_ctrl.c"
     "${ROOT}/UserApp/grab_ctrl.c"
     "${ROOT}/PcTests/freertos_stub/freertos_stub.c"
@@ -27,6 +28,7 @@ add_executable(twin_harness
 
 target_include_directories(twin_harness PRIVATE
     "${ROOT}/Modules/remote"
+    "${ROOT}/Modules"
     "${ROOT}/UserApp"
     "${ROOT}/Bsp"
     "${ROOT}/PcTests/freertos_stub"

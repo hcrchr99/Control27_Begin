@@ -43,14 +43,14 @@ void TestGrabCtrl_Run(void)
     printf("-- grab_ctrl --\n");
     RC_Cmd_Init();
 
-    /* ===== Init：越限钳入软限位 ===== */
+    /* ===== Init：越限钳入软限位（2026-10-12 限位占位加宽到 [0,180]）===== */
     {
         Grab_State_t g;
         float deg0[ROBOT_CMD_JOINT_COUNT] = { 0.0f, 200.0f, -5.0f, 90.0f, 90.0f };
         Grab_Init(&g, deg0);
-        CHECK_NEAR(g.deg[0], 5.0, 1e-6);
-        CHECK_NEAR(g.deg[1], 175.0, 1e-6);
-        CHECK_NEAR(g.deg[2], 5.0, 1e-6);
+        CHECK_NEAR(g.deg[0], 0.0, 1e-6);
+        CHECK_NEAR(g.deg[1], 180.0, 1e-6);
+        CHECK_NEAR(g.deg[2], 0.0, 1e-6);
         CHECK(!g.started);
     }
 
@@ -164,13 +164,62 @@ void TestGrabCtrl_Run(void)
             g_t += 10u;
             Seq_Frame_(j, 0);
         }
-        CHECK_NEAR(g.deg[0], 175.0, 1e-6);             /* 精确停在软限位 */
+        CHECK_NEAR(g.deg[0], 180.0, 1e-6);             /* 精确停在软限位 */
         for (int k = 0; k < 20; k++)
         {
             g_t += 10u;
             Seq_Frame_(j, 0);
         }
-        CHECK_NEAR(g.deg[0], 175.0, 1e-6);             /* 继续顶不累积 */
+        CHECK_NEAR(g.deg[0], 180.0, 1e-6);             /* 继续顶不累积 */
+    }
+
+    /* ===== 姿态宏：初始位→展开位，速率钳制+精确收敛+爪保持 ===== */
+    {
+        Grab_State_t g;
+        float deg0[ROBOT_CMD_JOINT_COUNT] = { 0, 180, 92, 63, 120 };  /* 初始位，爪两路非中位 */
+        Grab_Init(&g, deg0);
+        /* 展开：臂三关节去 (30,148,92)，爪两路冻结当前值（63/120） */
+        const float arm3[3] = { 30.0f, 148.0f, 92.0f };
+        float tgt[ROBOT_CMD_JOINT_COUNT] = { arm3[0], arm3[1], arm3[2],
+                                             g.deg[3], g.deg[4] };
+        Grab_PoseMove_t m;
+        Grab_PoseMoveStart(&m, tgt, 60.0f, 10000u);
+
+        uint32_t t = 10000u;
+        float rate[ROBOT_CMD_JOINT_COUNT];
+        bool stepping = true;
+        int ticks = 0;
+        float max_step = 0.0f;
+        while (stepping && ticks < 200)
+        {
+            t += 50u;                                  /* 20Hz 拍 */
+            stepping = Grab_PoseMoveStep(&m, &g, t, rate);
+            if (stepping)
+            {
+                /* 每关节每拍位移 ≤ dps·dt（60°/s×50ms=3°） */
+                for (int i = 0; i < ROBOT_CMD_JOINT_COUNT; i++)
+                {
+                    float move = rate[i] * 180.0f * 0.05f;
+                    if (fabsf(move) > max_step)
+                    {
+                        max_step = fabsf(move);
+                    }
+                    g.deg[i] += move;                  /* 手工复刻 Grab_Update 积分 */
+                }
+            }
+            ticks++;
+        }
+        CHECK(!stepping);                              /* 收摊 */
+        CHECK(ticks < 60);                             /* 92°行程/60°/s≈1.5s≈30 拍量级 */
+        CHECK(max_step <= 3.0f + 1e-4);                /* 速率钳制无超调 */
+        CHECK_NEAR(g.deg[0], 30.0, 0.1);
+        CHECK_NEAR(g.deg[1], 148.0, 0.1);
+        CHECK_NEAR(g.deg[2], 92.0, 0.1);
+        CHECK_NEAR(g.deg[3], 63.0, 1e-6);              /* 爪开合保持原值 */
+        CHECK_NEAR(g.deg[4], 120.0, 1e-6);             /* 爪旋转保持原值 */
+
+        /* 到位后再 Step = 无输出 */
+        CHECK(!Grab_PoseMoveStep(&m, &g, t + 50u, rate));
     }
 
     /* ===== 时基回绕：u32 无符号减法 dt 依然正确 ===== */
@@ -185,5 +234,18 @@ void TestGrabCtrl_Run(void)
         int8_t j[ROBOT_CMD_JOINT_COUNT] = { 100, 0, 0, 0, 0 };
         Seq_Frame_(j, 0);
         CHECK_NEAR(g.deg[0], 100.08, 1e-3);            /* 56ms × 180°/s = 10.08° */
+    }
+
+    /* ===== 姿态宏：目标越限位钳入（Start 规则同 Grab_Init）===== */
+    {
+        Grab_PoseMove_t m;
+        float tgt[ROBOT_CMD_JOINT_COUNT] = { 200.0f, -30.0f, 92.0f, 90.0f, 90.0f };
+        Grab_PoseMoveStart(&m, tgt, 60.0f, 0u);
+        CHECK_NEAR(m.tgt[0], 180.0, 1e-6);
+        CHECK_NEAR(m.tgt[1], 0.0, 1e-6);
+        CHECK(m.active);
+        /* dps 非法值兜底回满幅 */
+        Grab_PoseMoveStart(&m, tgt, 0.0f, 0u);
+        CHECK_NEAR(m.dps, 180.0, 1e-6);
     }
 }

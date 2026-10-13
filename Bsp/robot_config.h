@@ -103,9 +103,11 @@
  * 注意 PM10S 组帧长 4ms，2500µs 脉宽合法（bsp_pwm 按组钳帧长上限） */
 #define ROBOT_SERVO_PULSE_MIN_US_LIST   { 500, 500, 500, 500, 500 }
 #define ROBOT_SERVO_PULSE_MAX_US_LIST   { 2500, 2500, 2500, 2500, 2500 }
-/* 每 id 软限位（0..180° 坐标系，占位 ±5° 收边）—— 待结构定机械限位后收紧 */
-#define ROBOT_SERVO_LIMIT_MIN_DEG_LIST  { 5.0f, 5.0f, 5.0f, 5.0f, 5.0f }
-#define ROBOT_SERVO_LIMIT_MAX_DEG_LIST  { 175.0f, 175.0f, 175.0f, 175.0f, 175.0f }
+/* 每 id 软限位（0..180° 坐标系）—— 2026-10-12 加宽到全行程 [0,180]：初始位
+ * 折叠姿态需要肩 0°/肘 180°（用户孪生标定），且 0/180 恰为 PM10S 180° 窗口
+ * 边缘（833~2167µs）。⚠ 机械限位实测后在此收紧，姿态宏表同步复核 */
+#define ROBOT_SERVO_LIMIT_MIN_DEG_LIST  { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f }
+#define ROBOT_SERVO_LIMIT_MAX_DEG_LIST  { 180.0f, 180.0f, 180.0f, 180.0f, 180.0f }
 /* Init 中位稳定窗：发中位脉冲后经此时长 SetAngle 方生效（上电猛冲防护，
  * 非阻塞计时，与 bsp_pwm"上电 0 脉宽"构成两级安全链） */
 #define ROBOT_SERVO_CENTER_SETTLE_MS    300
@@ -218,6 +220,85 @@
 
 /* 底盘手感（摇杆曲线，实车调参只改这里） */
 #define ROBOT_APP_CHASSIS_DEADBAND  0.46f       /* 归一化量纲死区，内按零处理 */
+
+/* ---- 机械臂平面运动学（Modules/kinematics 消费；§3.9）----
+ * 数值源 = web_sim 数字孪生 model/links.json（小车装配体.STEP 程序化解析，
+ * CAD 同源，2026-10-11 提取），单位 mm/deg；实机装配实测后按三级来源纪律
+ * 回写本段（STEP → 装配实测 → 画线标定），kinematics 代码零改动。
+ *
+ * 坐标系：base_link 原点（≈地面投影中心），x 前 / z 上，臂面 = XZ 竖直面。
+ * 关节角用舵机 0..180° 口径，建模姿态（links.json 全零角）= 中位 90°；
+ * 侧向（y）不由运动学控制——爪夹取中点横向偏移见 ROBOT_ARM_TOOL_Y_MM，
+ * 随爪旋转角变化（Kin_Fk 输出 tip_y 供对准参考）。 */
+#define ROBOT_ARM_SHOULDER_X_MM     48.900f     /* 肩关节原点（base 系） */
+#define ROBOT_ARM_SHOULDER_Z_MM     46.198f
+#define ROBOT_ARM_UPPER_X_MM        111.100f    /* 肩→肘（肩坐标系，面内）|→127.917 */
+#define ROBOT_ARM_UPPER_Z_MM        63.400f
+#define ROBOT_ARM_ROLLJ_X_MM        58.354f     /* 肘→腕转关节（肘坐标系，面内） */
+#define ROBOT_ARM_ROLLJ_Z_MM        26.496f
+#define ROBOT_ARM_ROLLJ_Y_MM        46.593f     /* 腕转关节横向偏移：斜置转轴过此点 */
+#define ROBOT_ARM_WRIST_X_MM        23.723f     /* 腕转→腕俯仰（腕转坐标系，面内） */
+#define ROBOT_ARM_WRIST_Z_MM        21.742f
+#define ROBOT_ARM_WRIST_Y_MM        (-46.593f)  /* roll=0 时腕俯仰轴回到臂面 */
+/* 腕俯仰→爪夹取中点（腕俯仰坐标系，面内）。
+ * 2026-10-12 重新标定：原值 (77.723, −53.638) 使 Kin_Fk(90,90,90) 得
+ * (319.800, 104.198)，与 ROBOT_ARM_TCP_X/Z_MM 差 9.143mm —— FK 与
+ * IK 用的 R4 不自洽，导致建模位附近逆解全线失败。数值标定（work_kin_probe/
+ * calib_final.c）解得 |G|=85.3294mm、安装角 −34.0815°，残差 0.0004mm。 */
+#define ROBOT_ARM_TOOL_X_MM         70.6734f    /* |G| = 85.3294 mm */
+#define ROBOT_ARM_TOOL_Z_MM         (-47.8161f) /* 安装角 −34.0815° */
+#define ROBOT_ARM_TOOL_Y_MM         56.550f     /* roll=0 时夹取点横向偏移 */
+#define ROBOT_ARM_ROLL_AX_X         0.872057f   /* 腕转轴单位向量（臂面内，斜置）：
+                                                 * 绕它转 ~90° 后爪开合方向从水平
+                                                 * 横向摆到距竖直 29.3° 的斜上方向 */
+#define ROBOT_ARM_ROLL_AX_Z         0.489405f
+/* ---- 爪心/爪板法向（2026-10-12 用户网格实测，work/vert/claw_traj.py 标定）----
+ * 真实夹取中心 TCP 与爪板法向 n0（零位、臂面内）。三俯仰关节轴均∥y，
+ * 爪板朝向只由 Σ=θ1+θ2+θ4 决定 → 锁 roll=0、恒 Σ 即可"爪板沿自身法向
+ * 纯平移"（下压/前推），直线与朝向偏差均为 0（孪生逐点验证）。
+ * TCP0 − 腕俯仰轴(242.077,157.838) = R4 = (70.673,−47.818) */
+#define ROBOT_ARM_TCP_X_MM          312.750f
+#define ROBOT_ARM_TCP_Z_MM          110.020f
+#define ROBOT_ARM_NORMAL0_X         0.6356f
+#define ROBOT_ARM_NORMAL0_Z         0.7720f
+/* 直线插补（§3.9：直线模式插补节拍是时间主人，执行器斜坡必须高于插补峰值） */
+#define ROBOT_ARM_LINE_STEP_MM      3.0f        /* 预扫/插补步长 */
+#define ROBOT_ARM_LINE_SPEED_MMPS   60.0f       /* 爪尖线速度（占位，实机定手感） */
+#define ROBOT_ARM_SING_MARGIN       0.0015f     /* 伸直奇异拒判：|cos| 距 1 最小余量。
+                                                 * 建模位本身就几乎完全伸直
+                                                 * （1−|cos| ≈ 8.1e−5），原 0.02
+                                                 * 相当于要求两连杆夹角 >11.5°，
+                                                 * 会把"从建模位起步"的全部直线
+                                                 * 运动误判为奇异而一步不动。
+                                                 * 0.0015 对应夹角 >3.1°，仍能挡住
+                                                 * 真奇异（速率会爆），又不在边界
+                                                 * 位形上误杀。 */
+/* 竖直下压模式默认姿态（沿爪开合方向进给；占位待实机标定）：
+ * roll=90° 时开合方向最接近竖直（残角 29.3°，见 ROBOT_ARM_ROLL_AX_*） */
+#define ROBOT_ARM_DESCENT_ROLL_DEG  90.0f
+#define ROBOT_ARM_DESCENT_WRIST_DEG 90.0f       /* 下压全程腕角恒定（建模位） */
+/* 面内直线（TOOL）允许的爪旋转回中容差（URDF 度）：超过则自动回中后起步 */
+#define ROBOT_ARM_ROLL_CENTER_TOL_DEG 2.0f
+/* 预设点位（面内爪尖 x/z mm + 爪安装向量绝对指向 deg；占位待实机标定，
+ * 已按 kinematics 逆解+软限位预扫验证可达）。顺序：0=待机（爪收拢抬头）
+ * 1=低位矿（爪斜向下地面抓）2=高位矿（爪水平） */
+#define ROBOT_ARM_PRESET_COUNT      3
+#define ROBOT_ARM_PRESET_LIST       { { 215.0f, 265.0f,  45.0f }, \
+                                      { 230.0f,  70.0f, -60.0f }, \
+                                      { 270.0f, 160.0f,   0.0f } }
+/* ---- 姿态宏参数（2026-10-12）----
+ * 初始位（收拢）：臂折叠贴车的舵机角（用户孪生标定，实机装配后复标）。
+ * 展开：不设固定角度——几何派生"爪尖竖直上抬"：从当前爪尖沿竖直线走
+ * ROBOT_ARM_DEPLOY_RISE_MM，爪指向从当前值沿线过渡到
+ * ROBOT_ARM_DEPLOY_PITCH_DEG（终态近水平——保持折叠位朝下的爪指向会让
+ * 腕链倒挂、抬升够不到高度，用户图二终态即近水平）。折叠位出发时竖直
+ * 路径中段肘弯折越出软限位，自动降级为关节空间直达竖直终点（展开扫动
+ * 不可避免，终点不变）；靠近臂长边界自动缩步幅（满步→6 成→3 成）。
+ * 夹爪开合/旋转独立于宏（保持原值）。 */
+#define ROBOT_ARM_STOW_ARM_LIST     { 0.0f, 180.0f, 92.0f }
+#define ROBOT_ARM_DEPLOY_RISE_MM    70.0f   /* 展开竖直抬升高度 */
+#define ROBOT_ARM_DEPLOY_PITCH_DEG  0.0f    /* 展开终态爪指向（0=水平） */
+#define ROBOT_ARM_POSE_DPS          60.0f   /* 姿态宏关节角速度上限（°/s） */
 
 /* ================================ Vofa =================================== */
 

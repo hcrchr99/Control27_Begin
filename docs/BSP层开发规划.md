@@ -9,6 +9,9 @@
 > SPI2 频率勘误（4.5MHz）；bsp_pwm API 更新（duty 0.0~1.0f、TIM5×4）。
 > **v1.3 修订（2026-10-03）**：S7 结算——bsp_iic API 定稿勘误（§四 行125 原草案 Write 不带地址
 > → 对称地址参数化 + Mem 变体，Modules 坑#11 验收点）；坑 #10 已闭环 / 坑 #14 已决策；§六 S7 ✅。
+> **现状注记（2026-10-13）**：本文 F103RC 基线已完成使命——S0~S7 全过验收后主控换板 **F407VET6**
+> （2026-10-05 VG→10-07 VE，旧工程封存），现行工程结构、外设分组与 API 现状以
+> 《RM校内赛代码分层架构》v1.3 §3.2 为准；本文作 S0~S7 历史基线与测试台规范（§十）原始出处保留。
 
 ## 一、BSP 层定位与边界
 
@@ -170,11 +173,11 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -T \"${CMAKE_CURRENT_LIST_
 | S2 | 9/29~9/30 | ✅ bsp_spi + Modules/remote（136956e / b536f0a） | 双板联调 W1 验收：PRX 100pkts/s、收包率 100%>95%、seq 连续、看门狗 400ms 内 link=0 |
 | S3 | 提前完成 | ✅ bsp_encoder ×4（bb35b3b） | 手转四轮：计数连续、换向符号正确、无跳变 |
 | S4 | 提前完成 | ✅ bsp_pwm TIM4×4 20kHz / TIM5×4 50Hz（81f732c） | duty / 脉宽输出经示波器验证通过 |
-| S5 | 10/5（可提前） | Modules motor + servo | 四路开环正反转；舵机上电中位、0~180° 扫描、卸力/恢复（接口定稿见 Modules 规划 §3.1/3.2） |
+| S5 | 10/5（可提前） | ✅ Modules motor + servo（2026-10-03 板上过验，9e85098/ab8f439） | 四路开环正反转符号交叉判读全 O；舵机上电中位、0~180° 扫描、SG90 卸力手掰过验（接口定稿见 Modules 规划 §3.1/3.2） |
 | S6 | 10/6 | ✅ bsp_adc + Modules/power（2026-10-06 板上过验） | 串口打印 V/I 对表过验（V_K=0.993@电源模块供电）；T0 循环/T1 字序/T2 丢窗/T5 ADC3 双通道全过；T3 电池分压对表/T4 同步性/T6 关节标定待采样电路上板（§3.4 结算） |
 | S7 | 10/7 | ✅ bsp_iic + Modules/oled（2026-10-03 板上过验） | 四项显示对表（V/I/P 整型 + LINK=DOWN 属预期，remote 本测试不初始化）无花屏/拖影；T3 拔插自愈过验（连败恢复 + OLED 连败 5 次自动重发 init）；T4 地址参数化 0x3C ACK/0x68 无 ACK；KEY1 图形演示页（§3.5 结算） |
 
-W2 剩余时间（10/8~10/9）做 BSP+Modules 全量回归（测试台编号逐项重跑，编号分配见 Modules 规划 §四）；交接口——速度环、RC_Cmd 遥控协议层、actuator、alarm——见《Modules层开发规划.md》§3.7/3.8/3.3/3.6。
+W2 剩余时间（10/8~10/9）做 BSP+Modules 全量回归（测试台编号逐项重跑，编号分配见 Modules 规划 §四）；交接口——速度环、RC_Cmd 遥控协议层、actuator、alarm——见《Modules层开发规划.md》§3.7/3.8/3.3/3.6。（此段为 2026-09-30 排期语言；W2 实际推进与结算见 Modules 规划 §四——速度环/协议层/actuator/alarm 已分别于 W2.1~W2.4 过验收官。）
 
 **提交规范**（规划四.6）：每个 S 阶段 ≥1 次功能小提交，作者真名，commit message 注明模块与验收结果——这是自主设计的唯一证明。
 
@@ -195,7 +198,7 @@ W2 剩余时间（10/8~10/9）做 BSP+Modules 全量回归（测试台编号逐�
 13. **ADC 基准=VDDA，随供电形态漂移**：USB 供电下 VDDA 下漂，同一电压读数整体偏高且随时间增大（实测增益 +2.6%→更大，反推 VDDA 3.21V→3.11V）；换电源模块供电后 V_K 0.9745→0.993 复准。链路级标定系数只在标定时的供电形态下有效——**供电形态变更（含最终上电池）必须复标**，这正是标定日期存在的意义。
 14. **newlib-nano 未启 `_printf_float`**：`%f` 板上打印失效（不报错、打空）——测试台/日志一律整型小数化打印（mV/mA/mW）；S7 OLED 若需 %f 须链接 `-u _printf_float`（flash +~8KB，届时决策）。【2026-10-03 已决策】S7 OLED **不链** `-u _printf_float`——`Oled_Printf` 沿用整型小数化约定，flash 省 ~8KB。
 
-## 八、资源预算（48KB SRAM）
+## 八、资源预算（48KB SRAM——F103RC 时代口径）
 
 | 项 | 占用 | 说明 |
 | --- | --- | --- |
@@ -206,7 +209,7 @@ W2 剩余时间（10/8~10/9）做 BSP+Modules 全量回归（测试台编号逐�
 | 全局结构 + 栈余量 | ~2 KB | RC_Cmd、Actuator 实例等 |
 | **剩余** | **≥22 KB** | 充足，但新增大缓冲仍需先登记 |
 
-Flash：HAL + FreeRTOS 约 30KB 起，RCT6 256KB 充足，无需关注。
+Flash：HAL + FreeRTOS 约 30KB 起，RCT6 256KB 充足，无需关注。【2026-10-13 注】F407VET6（128K SRAM + 512K Flash）现状 RAM 22.10%/FLASH 17.80%，本表数字仅作 F103 历史预算。
 
 ## 九、与上层的交接约定
 
@@ -238,7 +241,7 @@ Flash：HAL + FreeRTOS 约 30KB 起，RCT6 256KB 充足，无需关注。
 2. `test_bench.c`：声明 + `s_table[]` 追加一行；
 3. `robot_config.h`：`ROBOT_TEST_BENCH` 改成对应编号，注释里的选择表同步补一行。
 
-**编号规则（硬性）：只增不改不插**。编号是外部配置值（robot_config.h 里手填的），重排/插入会使既有配置悄悄改变语义——新项一律追加到枚举尾部。当前表：0=NONE 1=GPIO(S1) 2=ENCODER(S3) 3=SPI(S2) 4=PWM(S4) 5=REMOTE(S2 链路)。
+**编号规则（硬性）：只增不改不插**。编号是外部配置值（robot_config.h 里手填的），重排/插入会使既有配置悄悄改变语义——新项一律追加到枚举尾部。当前表（2026-10-13 现状）：0=NONE 1=GPIO(S1) 2=ENCODER(S3) 3=SPI(S2) 4=PWM(S4) 5=REMOTE(S2 链路) 6=MOTOR(S5/W2.3) 7=SERVO(S5/W2.4 扩) 8=POWER(S6) 9=OLED(S7) 10=ACTUATOR(W2.4) 11=RC_CMD(W2.2) **12=（曾配 DWT 排查台，结案撤销后编号作废不复用）** 13=TUNE(W2.3)。
 
 ### 10.4 验收代码迁移模式（以 remote 为范例）
 

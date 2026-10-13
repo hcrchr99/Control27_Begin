@@ -1,8 +1,8 @@
 ---
-title: RM校内赛代码分层架构 v1.2
+title: RM校内赛代码分层架构 v1.3
 ---
 
-> 配套《机甲夺矿》电控开发计划 v1.0。主控 STM32F103RCT6，血统：control-2026 四层架构。  
+> 配套《机甲夺矿》电控开发计划 v1.0。主控 **STM32F407VET6**（2026-10-07 换板定稿；v1.0~v1.2 编写期的 F103RCT6 基线作历史），血统：control-2026 四层架构。  
 > 本文回答规划 3.1 节「沿用 control-2026 四层血统」的具体落地，并附对规划的审视结论。  
 > **v1.1 修订（2026-09-30）**：按 BSP 层 S0~S4 验收实况修订——F1 支撑定稿为 CubeMX/HAL 生成、
 > `bsp_dwt`→`bsp_sys`、`bsp_usart` 并入 `bsp_log`（UART4 纯中断）、TIM5×4、`robot_def.h` 职能
@@ -11,13 +11,14 @@ title: RM校内赛代码分层架构 v1.2
 > 实施层排期：姊妹篇《BSP层开发规划》v1.3（S0~S7 已验收）与《Modules层开发规划》v1.0（新增）。
 > **v1.2 修订（2026-10-03）**：S7 结算——**L2 BSP 层 9/9 收官**（S6 bsp_adc / S7 bsp_iic 板上过验），
 > §3.2 状态表更新为实际冻结形态；L3 Modules oled 验收冻结（§3.3）。
+> **v1.3 修订（2026-10-13）**：**主控换板 F103RC→F407VET6**（2026-10-05 VG→10-07 VE，旧工程封存）——主控口径/目录树/门面/外设现状全量对齐；Modules 补 rc_cmd（✅W2.2）与 kinematics（封存支线）；舵机 ×4→×5（ID5=爪旋转）；bsp_pwm 三组化+TIM14 蜂鸣器、日志口 USART2、bsp_vofa、bsp_adc 双 rank 重构现状入表；W2.3/W2.4 结算与 UserApp 业务链（22fe2ee）落地标注。历史裁决与结算段落保留原文，F103RC 时代口径逐处加注。
 
 ## 〇、审视结论（先行）
 
 规划整体成立：硬约束表已与规则手册原文逐条核对一致（6 kg / 400×400 / 离地 90 mm / 200 Wh·24 V / 载矿 ≤2 / OLED 误差 ±10% / 自制遥控+急停 / 隧道 75 mm+台阶 95 mm / 资源区机构可入底盘不可入）；「限时输出+卸力」保护策略、执行器抽象、遥控链路四原则都是正确方向。以下是审阅中发现、需要在 W1 内消化的问题（W1 已收官，落地状态随条目标注）：
 
 1. **【2026-09-27 勘误】遥控链路更换：HC-05/UART 方案作废，改为 nRF24L01（SPI2 + IRQ=PC5）**。原「HC-05 走 UART4、调试走 UART5」的对调随之简化为：UART4 专职调试口，UART5 引脚 PC12/PD2 释放给 nRF24 的 CSN/CE。**【2026-09-27 二次变更，S0 已落地】UART4 连 DMA 也不用：纯中断收发 + 环形缓冲（`bsp_log`），DMA 控制器仅剩 DMA1_Ch1 服务 ADC（方案 B）**。15 B @ 100 Hz 的射频载荷对 SPI2 无压力。详见规划 2.2 / 六。
-2. **control-2026 的 Hardware 层只有 stm32-f4 / stm32-h7，F1 支撑需新建。**【v1.1 定稿】实际以 **CubeMX 生成代码（HAL 库）**落地而非手写标准外设库：`Hardware/F103RC` 即 CubeMX 工程 = CMake 工程根，「只生成不修改」原则改为「生成代码不动，用户代码全部进 USER CODE 段与分层目录」。RCT6 属大容量产品，TIM8 / TIM5 / ADC3 / UART4 在片，外设规划无缺口（2026-09-27 复核通过）。
+2. **control-2026 的 Hardware 层只有 stm32-f4 / stm32-h7，F1 支撑需新建。**【v1.1 定稿】实际以 **CubeMX 生成代码（HAL 库）**落地而非手写标准外设库：`Hardware/F103RC` 即 CubeMX 工程 = CMake 工程根，「只生成不修改」原则改为「生成代码不动，用户代码全部进 USER CODE 段与分层目录」。RCT6 属大容量产品，TIM8 / TIM5 / ADC3 / UART4 在片，外设规划无缺口（2026-09-27 复核通过）。【v1.3 现状】车端工程已迁 **`Hardware/F407VE`**（VET6=512K Flash），`F407VG`/`F103RC` 注释封存；门面同构，换板只重生成 Hardware 层。
 3. **共享 Cmd 结构体 vs 学长框架的 message_center 发布订阅**：在 48 KB SRAM 上裁剪合理（任务仅 5 个），但并发语义必须写死（见第五章），否则这是最容易埋雷的位置。【v1.1 现状】单写者模型已随 remote_task 落地雏形（帧队列消费）；`RC_Cmd` 结构与快照读法在 W2 随遥控协议层落地（见《Modules层开发规划》§3.8）。
 4. ~~CRC8 单字节漏检概率约 1/256，急停帧建议连发 3 帧~~（2026-09-27 勘误：改用 nRF24L01 后链路校验由硬件 CRC16 + Auto-ACK 重传完成，软件层不再做 CRC/SEQ；急停走载荷 FLAGS 位，仍连发）；「急停帧毫秒级 + 遥控器断电看门狗 300~500 ms」的双保险保持不变（看门狗已在 `Remote_IsLinkUp` 落地，实测 400 ms）。
 5. 功率换算系数依赖硬件 TBD（采样电阻/运放增益/分压比），而 OLED 显示误差 ≤±10% 是检录硬项——系数必须全部收进 robot_config.h 并预留标定宏。【v1.1】`ROBOT_POWER_V_K/I_K` 占位已就位，S6 随 Modules/power 标定。
@@ -31,24 +32,25 @@ title: RM校内赛代码分层架构 v1.2
 ```mermaid
 flowchart TD
     subgraph L4["UserApp 应用层 —— 只谈业务"]
-        A1["remote_task ✅S2<br>(RC_Cmd 协议层 W2 接入)"]
-        A2["chassis 麦轮运动"]
-        A3["grab 机构状态机"]
+        A1["remote_task ✅S2<br>(rc_cmd ✅W2.2)"]
+        A2["chassis_task<br>业务纯函数 ✅，task 接线待建"]
+        A3["grab_task<br>业务纯函数 ✅，task 待建"]
         A4["sense 功率标定/OLED"]
         A5["daemon 故障守护"]
     end
-    subgraph TB["Tests 板级测试台 —— 验收即测试项（编号 0~5 已用）"]
-        T1["test_bench 调度<br>gpio/encoder/spi/pwm/remote"]
+    subgraph TB["Tests 板级测试台 —— 验收即测试项（编号 0~11+13 已用，12 作废空缺）"]
+        T1["test_bench 调度<br>gpio/encoder/spi/pwm/remote<br>oled/power/motor/servo<br>rc_cmd/actuator/tune"]
     end
     subgraph L3["Modules 模块层 —— 只谈设备与算法"]
-        B1["remote+nrf24 ✅S2<br>PRX/PTX 双模式+看门狗"]
-        B2["motor（S5 开环/W2 速度环）"]
-        B3["servo（S5）"]
-        B4["actuator（W2 限时/卸力/缓动）"]
-        B5["power（S6）"]
-        B6["algorithm（W2 PID/低通/缓动）"]
-        B7["oled（S7）"]
-        B8["alarm（W2 故障码声光）"]
+        B1["remote+nrf24 ✅S2<br>+rc_cmd ✅W2.2"]
+        B2["motor ✅S5+W2.3 速度环"]
+        B3["servo ✅S5（×5）"]
+        B4["actuator ✅W2.4"]
+        B5["power ✅S6"]
+        B6["algorithm ✅W2.1"]
+        B7["oled ✅S7"]
+        B8["alarm ✅W2.4"]
+        B9["kinematics（实装封存<br>kinematics-pending 待重启）"]
     end
     subgraph L2["Bsp 板级层 —— 只谈外设（S0~S7 已落地 9/9 收官）"]
         C1["bsp_sys / bsp_log / bsp_gpio"]
@@ -84,23 +86,30 @@ RM_Begin/                     ← 仓库根（CMake 门面 CMakeLists.txt + CMak
 │   ├── bsp_adc.c/.h          # S6：ADC1/2 双同步 DMA 循环 + ADC3 扫描
 │   └── bsp_iic.c/.h          # S7：I²C2 阻塞读写带超时
 ├── Modules/
-│   ├── remote/               # ✅S2 nrf24_defs.h/nrf24.c（寄存器级）+ remote.h/.c（链路层）
-│   ├── motor.c/.h            # S5：TB6612 方向+STBY+duty（开环）；W2 加速度环
-│   ├── servo.c/.h            # S5：角度映射/软限位/卸力
-│   ├── actuator.c/.h         # W2：电流堵转/累计供电热保护/卸力/缓动（规划 5.1/5.2 载体，无反馈开环保护）
-│   ├── power.c/.h            # S6：ADC 原始值→V/I/P 换算（窗口均值+标定宏）
-│   ├── algorithm/            # W2：PID/一阶低通/缓动/clamp（纯 C 无硬件依赖）
-│   ├── oled.c/.h             # S7：SSD1306 驱动 + 排版刷新
-│   └── alarm.c/.h            # W2：故障码→蜂鸣器+LED 状态码
+│   ├── remote/               # ✅S2 nrf24_defs.h/nrf24.c（寄存器级）+ remote.h/.c（链路层）+ rc_cmd.h/.c ✅W2.2
+│   ├── motor.c/.h            # ✅S5 开环 + ✅W2.3 速度环
+│   ├── servo.c/.h            # ✅S5：角度映射/软限位/卸力（×5：ID5=爪旋转；TIM9@250Hz / TIM5@50Hz 分组）
+│   ├── actuator.c/.h         # ✅W2.4：电流堵转/累计供电热保护/卸力/缓动（保护策略层，5 实例）
+│   ├── power.c/.h            # ✅S6：ADC 原始值→V/I/P 换算（窗口均值+标定宏）
+│   ├── algorithm/            # ✅W2.1：PID/一阶低通/缓动/user_lib（纯 C 无硬件依赖）
+│   ├── kinematics.c/.h       # 机械臂平面运动学（已实装，封存于 kinematics-pending 支线待重启）
+│   ├── oled.c/.h             # ✅S7：SSD1306 驱动 + 排版刷新
+│   └── alarm.c/.h            # ✅W2.4：故障码→无源蜂鸣器（PWM 方波音型）+LED1 同相声光
 ├── UserApp/
-│   ├── remote_task.c         # ✅S2 PRX 服务循环 + 1Hz 统计（RC_Cmd 协议层 W2 在此接入）
-│   └── （chassis/ grab/ sense/ 二期；建任务由 CubeMX freertos.c 承担，不另设 os_task.c）
-├── Tests/                    # ✅S2 板级测试台：验收即测试项、常驻主干（test_bench 调度 + 5 项）
+│   ├── remote_task.c         # ✅S2 PRX 服务循环 + RC_Cmd 唯一写者
+│   ├── chassis_task.c        # ✅W2.3 速度环 1kHz 节拍；chassis_ctrl.c/.h 业务纯函数 ✅（三步逆解链）
+│   ├── grab_ctrl.c/.h        # ✅ 抓取业务纯函数（速率积分/软限位钳停/急停角度保持）；grab_task 待建
+│   └── （sense/ daemon 二期；建任务由 CubeMX freertos.c 承担，不另设 os_task.c）
+├── Tests/                    # ✅S2 板级测试台：验收即测试项、常驻主干（编号 0~11+13，12 作废空缺）
+├── PcTests/                  # PC 侧单测（host 编译独立 CMake，291 checks；不进固件 GLOB）
+├── PcTwin/                   # 数字孪生桥（twin_harness + ws_bridge，跑固件同款源文件）
 ├── Hardware/
-│   ├── F103RC/               # 车端 CubeMX 工程 = CMake 工程根（CMSIS+HAL+FreeRTOS 不动）
+│   ├── F407VE/               # ✅车端 CubeMX 工程 = CMake 工程根（2026-10-07 定稿，VET6=512K Flash）
+│   ├── F407VG/               # 封存（2026-10-05 首轮 F4 迁移，供 VGT6 回退）
+│   ├── F103RC/               # 封存（F103 时代工程）
 │   ├── F103C8_PTX_T/         # ✅S2 nRF24 测试发送板（链路诊断专用，非遥控器；CONFIG_REMOTE_UNIT 复用源码）
 │   └── Remoter/              # 遥控器整机（仅 .ioc 未生成；按同模式独立工程 + CONFIG_REMOTE_UNIT 展开）
-└── docs/                     # 本架构 v1.1 + BSP 层规划 v1.2 + Modules 层规划 v1.0
+└── docs/                     # 本架构 v1.3 + BSP 层规划 v1.3 + Modules 层规划 v1.2 + UserApp 层规划 v1.0
 ```
 
 遥控器整机（Remoter）为同仓库第二个业务工程（复用 Bsp/Modules，`CONFIG_REMOTE_UNIT` 区分），不单独起架构；F103C8_PTX_T 为链路测试板，不承担业务。
@@ -109,26 +118,27 @@ RM_Begin/                     ← 仓库根（CMake 门面 CMakeLists.txt + CMak
 
 ### 3.1 Hardware（芯片支撑）
 
-CubeMX 生成代码（Core/Drivers/Middlewares）+ 启动文件 + FreeRTOS 内核。本层文件「只生成不修改」——升级由 CubeMX 重新生成，用户代码全部置于 USER CODE 段与分层目录；禁止任何业务与板级知识渗入。【v1.1】CMake 以仓库根 `CMakeLists.txt` 为门面 `add_subdirectory(Hardware/F103RC)`，分层目录用 `CMAKE_CURRENT_LIST_DIR` 定位（CLion 预设 profile 双窗口开根工程与测试工程）。
+CubeMX 生成代码（Core/Drivers/Middlewares）+ 启动文件 + FreeRTOS 内核。本层文件「只生成不修改」——升级由 CubeMX 重新生成，用户代码全部置于 USER CODE 段与分层目录；禁止任何业务与板级知识渗入。【v1.1】CMake 以仓库根 `CMakeLists.txt` 为门面，【v1.3 现状】`add_subdirectory(Hardware/F407VE)`，分层目录用 `CMAKE_CURRENT_LIST_DIR` 定位（CLion 预设 profile 双窗口开根工程与测试工程）。
 
 ### 3.2 Bsp（板级支持）
 
-原则：最薄封装、一个外设一个模块、不知业务。所有引脚与重映射（含 TIM2 PartialRemap1、JTAG Disable、编码器 2 的 PA15/PB3）只允许出现在 bsp_pin.h。【v1.2 状态】S0~S7 九个模块全部验收通过，**BSP 层收官**（2026-10-03 bsp_iic 板上过验）；API 细节以《BSP层开发规划》§四为准，下表列实际冻结形态。
+原则：最薄封装、一个外设一个模块、不知业务。所有引脚与重映射只允许出现在 bsp_pin.h【v1.3 注：F407 无 AFIO remap 概念，TIM2 PartialRemap1/PA15/PB3 等重映射叙事仅存于 F103RC 历史】。【v1.2 状态】S0~S7 九个模块全部验收通过，**BSP 层收官**（2026-10-03 bsp_iic 板上过验）；API 细节以《BSP层开发规划》§四为准，下表列实际冻结形态；【v1.3】W2.3 起新增 bsp_vofa，日志口换挂 USART2。
 
-2026-09-26 勘误（ADC 触发方案，定稿方案 B）：F103 的 ADC1/2 规则组触发源（EXTSEL）仅有 T1_CC1/CC2/CC3、T2_CC2、T3_TRGO、T4_CC4、EXTI11（重映射后 = TIM8_TRGO）与软件启动，不含 TIM7 TRGO 档；且上述硬件触发源在本工程已被编码器（TIM1/2/3/8）、电机 PWM（TIM4_CC4）与按键（PA11 = EXTI11）全部占用。故 bsp_adc 定稿为：ADC1/2 双同步规则组 + 连续转换 + DMA1_Ch1 循环搬运，sense_task 随时读最新值、按固定样本数窗口平均；TIM7 保留为 1 kHz 通用节拍定时器（可选），不再承担 ADC 触发。详见工作区《Hardware代码审查报告.md》与《ADC方案B配置指南.md》。
+2026-09-26 勘误（ADC 触发方案，定稿方案 B）：F103 的 ADC1/2 规则组触发源（EXTSEL）仅有 T1_CC1/CC2/CC3、T2_CC2、T3_TRGO、T4_CC4、EXTI11（重映射后 = TIM8_TRGO）与软件启动，不含 TIM7 TRGO 档；且上述硬件触发源在本工程已被编码器（TIM1/2/3/8）、电机 PWM（TIM4_CC4）与按键（PA11 = EXTI11）全部占用。故 bsp_adc 定稿为：ADC1/2 双同步规则组 + 连续转换 + DMA1_Ch1 循环搬运，sense_task 随时读最新值、按固定样本数窗口平均；TIM7 保留为 1 kHz 通用节拍定时器（可选），不再承担 ADC 触发。详见工作区《Hardware代码审查报告.md》与《ADC方案B配置指南.md》。【v1.3 注】F103RC 时代方案；F407VE 上已重构为**双 rank 双同步**（ADC3 退役，见下表 bsp_adc 行与坑册 二.4/二.5）。
 
-**2026-09-27 二次变更：调试口 UART4 不再使用 DMA**（已释放 DMA2_Ch3/Ch5 及对应中断），改为纯中断收发 + 环形缓冲；调试口无协议帧，"DMA 循环 + IDLE 判帧"字样作废。DMA 控制器现仅剩 DMA1_Ch1 服务 ADC（方案 B）。
+**2026-09-27 二次变更：调试口 UART4 不再使用 DMA**（已释放 DMA2_Ch3/Ch5 及对应中断），改为纯中断收发 + 环形缓冲；调试口无协议帧，"DMA 循环 + IDLE 判帧"字样作废。DMA 控制器现仅剩 DMA1_Ch1 服务 ADC（方案 B）。【v1.3 注】F103RC 时代定稿；F407VE 现状=日志口 **USART2**（TX=PD5/RX=PD6），UART4 转 **bsp_vofa@921600**（JustFloat 波形 + 交互台命令行，见下表）。
 
 | 模块 | 状态 | 外设/资源 | 关键实现点（实际冻结形态） |
 | --- | --- | --- | --- |
-| bsp_sys（原规划 bsp_dwt） | ✅S0 | DWT CYCCNT | `Bsp_Init` 最早初始化 / `Bsp_GetUs`（71.6min 回绕）/ `Bsp_GetMs` / `Bsp_DelayUs`（>1ms 用 osDelay）；教训：实例宏≠HAL 句柄，一律 `&htimx` 形态 |
-| bsp_log（原规划 bsp_usart 并入） | ✅S0 | UART4 115200 纯中断 | `Log_Printf`（TX 队列，满则丢不阻塞）/ `Log_Poll`（RX 256B 环形缓冲）/ printf 重定向；无 DMA、无 IDLE 判帧（09-27 二次变更定稿） |
-| bsp_gpio | ✅S1 | 方向×8 / STBY / LED×2 / 按键×2 / 蜂鸣器 / CSN·CE | `GpioPin_t` 复合引脚类型 + `Gpio_Set/Reset/Read`；`Exti_Attach(pin, cb)` 回调注册是全部 EXTI 行为注入的唯一通道，回调仅 osSignalSet 级操作 |
-| bsp_pwm | ✅S4 | TIM4×4（20kHz 电机）/ **TIM5×4**（50Hz 舵机，CH4 启用） | 统一通道号 `PWM_20K_CH1..4`(1..4) / `PWM_50HZ_CH1..4`(5..8)；`Pwm_SetDuty(ch, float 0..1)`（NaN/负值落安全态，防整数档量化损耗）/ `Pwm_SetPulseUs`（仅 50Hz 组，钳 0..20000us）/ `Pwm_Release`（compare=0，可直恢复）；Init 后 0 输出=上电安全链，不依赖上层调用顺序 |
-| bsp_encoder | ✅S3 | TIM1/2/3/8 编码器模式 | TIM2 部分重映射1 + SWJ 防御固化；16 位回绕差分扩展 int32；`Encoder_Read`（增量）/ `Encoder_GetCount`（累计） |
-| bsp_spi | ✅S2 | SPI2（PB13/14/15）→ nRF24L01，**4.5 MHz**（APB1 36M/8，09-29 勘误） | `Spi_Transfer/TransferByte`（10ms 超时）/ `Spi_Csn/Spi_Ce`（委托 bsp_gpio）/ `Spi_IsReady`；CSN/CE 时序知识归 Modules/remote |
-| bsp_adc | ✅S6 | ADC1_IN4+ADC2_IN5 双同步 + ADC3_IN12/13 | DMA 32 位字拆分（低 16=ADC1 电流 / 高 16=ADC2 电压）；启动后丢前 2 窗口样本；窗口均值样本数进 robot_config.h；从机触发链 EXTTRIG 运行期补位（HAL 缺口，坑 #11） |
+| bsp_sys（原规划 bsp_dwt） | ✅S0 | DWT CYCCNT | `Bsp_Init` 最早初始化 / `Bsp_GetUs` / `Bsp_GetMs` / `Bsp_DelayUs`（>1ms 用 osDelay）；教训：实例宏≠HAL 句柄，一律 `&htimx` 形态。【v1.3】F407 rev5/6 带 CoreSight LAR 锁（坑#15）：Init 写 0xC5ACCE55 解锁，`Bsp_DwtReArm` 任务级幂等补枪；CYCCNT 25.6s 回绕以无符号差分+u64 扩展根治 |
+| bsp_log（原规划 bsp_usart 并入） | ✅S0 | USART2 115200 纯中断【v1.3：F407VE 起日志口换挂 USART2；UART4 转 bsp_vofa@921600】 | `Log_Printf`（TX 队列，满则丢不阻塞）/ `Log_Poll`（RX 环形缓冲）/ printf 重定向；无 DMA、无 IDLE 判帧（09-27 二次变更定稿） |
+| bsp_gpio | ✅S1 | 方向×8 / STBY / LED×2 / 按键×2 / CSN·CE | `GpioPin_t` 复合引脚类型 + `Gpio_Set/Reset/Read`；`Exti_Attach(pin, cb)` 回调注册是全部 EXTI 行为注入的唯一通道，回调仅 osSignalSet 级操作【v1.3 注：蜂鸣器改 PWM 方波驱动，GPIO 蜂鸣器引脚方案作废】 |
+| bsp_pwm | ✅S4 | TIM4×4（20kHz 电机）/ TIM9×2（250Hz PM10S）/ TIM5×3（50Hz SG90）/ TIM14_CH1（蜂鸣器方波）【v1.3：三组+蜂鸣器组，舵机 ×5】 | 通道号 `PWM_20K_CH1..4`(1..4) / `PWM_250HZ_CH1..2`(5..6) / `PWM_50HZ_CH1..3`(7..9) / `PWM_TIM14_CH1`(10)；`Pwm_SetDuty(ch, float 0..1)`（NaN/负值落安全态）/ `Pwm_SetPulseUs`（按组钳帧长：250Hz 组 4000µs、50Hz 组 20000µs，均 2µs/步）/ `Pwm_Release`（compare=0）；Init 后 0 输出=上电安全链，不依赖上层调用顺序 |
+| bsp_encoder | ✅S3 | TIM1/2/3/8 编码器模式 | 16 位回绕差分扩展 int32；`Encoder_Read`（增量）/ `Encoder_GetCount`（累计）【v1.3 注：F407 无 remap，引脚直配】 |
+| bsp_spi | ✅S2 | SPI2（PB13/14/15）→ nRF24L01，**5.25 MHz**（APB1 42M/8）【v1.3 F407 现状】 | `Spi_Transfer/TransferByte`（10ms 超时）/ `Spi_Csn/Spi_Ce`（委托 bsp_gpio）/ `Spi_IsReady`；CSN/CE 时序知识归 Modules/remote |
+| bsp_adc | ✅S6 | 双同步双 rank：ADC1(IN4+IN12)/ADC2(IN5+IN13)，**ADC3 退役**【v1.3 F4 重构】 | 一条 DMA 全包四通道，字流偶=V/I 对、奇=J 对；J 通道连续采样无阻塞（对堵转判据友好）；启动后丢前 2 窗口样本；从机补上电+EXTTRIG（坑 #5/#11） |
 | bsp_iic | ✅S7 | I2C2（PB10/PB11）100kHz → OLED | **地址参数化对称接口** `Iic_Write/Read(addr7,...)` + Mem 变体 `Iic_WriteReg/ReadReg(addr7,reg,...)` + `Iic_IsDeviceReady`（addr 7 位入参内部左移）；全部带超时；连续失败 3 次触发总线恢复（DeInit→Init），禁止死等【2026-10-03 过验收官】 |
+| bsp_vofa | ✅W2.3 | UART4@921600（实测 933.3k，+1.3% 合法） | JustFloat IT 发送（忙丢弃不阻塞控制环）+ 命令行接收（OnRxIrq 自持缓冲 → `Bsp_Vofa_ReadLine` 关中断快照）；交互台 7=SERVO/10=ACTUATOR/13=TUNE 同口同工作流 |
 
 ### 3.3 Modules（设备与算法）
 
@@ -136,14 +146,15 @@ CubeMX 生成代码（Core/Drivers/Middlewares）+ 启动文件 + FreeRTOS 内�
 
 | 模块 | 状态 | 职责 | 对上接口 | 依赖 |
 | --- | --- | --- | --- | --- |
-| remote（+nrf24） | ✅S2 | nRF24 器件驱动 + 链路层：PRX/PTX 双模式、IRQ 服务、看门狗、诊断计数 | `Remote_Init(mode)` / `Remote_Service` / `Remote_ReadPacket` / `Remote_SendPacket` / `Remote_IsLinkUp` / GetRx·TxFailCount | bsp_spi, bsp_gpio, bsp_sys, cmsis_os（授权例外）；W2 增 RC_Cmd 协议层 |
-| motor | S5/W2 | TB6612 ×4：方向+STBY+duty 开环（S5）→ 速度环（W2，依赖 algorithm） | `Motor_SetDuty(ch,±1.0f)`【2026-10-03 变更：原 ±1000 int16 → float，与 Pwm_SetDuty 同量纲】 / `Motor_Enable/Disable`；W2 加 `Motor_SetSpeedRpm/GetSpeedRpm` | bsp_pwm, bsp_gpio, bsp_encoder；速度环加 algorithm |
-| servo | S5 | 舵机 ×4 两类分型（大臂/小臂=数字 fail-hold：发一次锁存、停脉冲≠卸力；手腕/爪子=SG90 模拟：停脉冲=真卸力；爪子器件已定案 SG90，360° 方案作废）：脉宽↔角度、软限位、Release 能力表 | `Servo_InitAll/SetAngle/Release(返bool)/CanUnload`【2026-10-03 变更：ReleaseCutsPower→CanUnload，Release 返"本次是否真卸力"】 | bsp_pwm |
-| actuator | W2 | 执行器保护策略（**无位置反馈+器件分型+业务拍板**：数字大臂/小臂=电流判据触发即报警（fail-hold 软件无法卸力）；爪子 SG90=热保护→grab 拍板停脉冲；手腕全程保持=热保护禁用、仅报警兜底）：电流堵转/热保护/卸力/缓动恢复 | `Act_Init/SetTarget/Update/Release/IsSettled/IsStalled/NeedsCooldown` | **servo**（登记例外）, algorithm |
-| power | S6 | 功率采样换算：窗口均值 + 标定宏，换算点全系统唯一 | `Power_GetVoltage/Current/Power` / `Power_GetJointCurrent(k)` | bsp_adc |
-| algorithm | W2 | PID（**移植自 control-2026 controller，去 arm_math 适配**）/ 一阶低通 / 缓动轨迹 / clamp；纯 C 可 PC 单测 | 纯函数 | 无（PID 内部 dt 自算用 bsp_sys） |
+| remote（+nrf24） | ✅S2 | nRF24 器件驱动 + 链路层：PRX/PTX 双模式、IRQ 服务、看门狗、诊断计数；**rc_cmd ✅W2.2**（帧布局 v2 冻结 15B/joint[5]，两级故障语义） | `Remote_Init(mode)` / `Remote_Service` / `Remote_ReadPacket` / `Remote_SendPacket` / `Remote_IsLinkUp` / GetRx·TxFailCount；`RC_Cmd_Init/Update(f,now_ms)/GetCopy` | bsp_spi, bsp_gpio, bsp_sys, cmsis_os（授权例外） |
+| motor | ✅S5+✅W2.3 | TB6612 ×4：方向+STBY+duty 开环 → 速度环（测速 20ms 滚动窗+PID 直喂 duty） | `Motor_SetDuty(ch,±1.0f)`【2026-10-03 变更：原 ±1000 int16 → float】 / `Motor_Enable/Disable` / `Motor_SetSpeedRpm/GetSpeedRpm`；调试接口 `GetDuty/GetIout/SetTune/GetTune` | bsp_pwm, bsp_gpio, bsp_encoder, algorithm |
+| servo | ✅S5 | 舵机 **×5** 两类分型（大臂/小臂=数字 fail-hold：发一次锁存、停脉冲≠卸力；手腕/爪开合/爪旋转=SG90 模拟：停脉冲=真卸力；ID5=爪旋转 2026-10-05 增）：脉宽↔角度、软限位、Release 能力表 | `Servo_InitAll/SetAngle/Release(返bool)/CanUnload`【2026-10-03 变更：ReleaseCutsPower→CanUnload，Release 返"本次是否真卸力"】 | bsp_pwm |
+| actuator | ✅W2.4 | 执行器保护策略（**无位置反馈+器件分型+业务拍板**：数字大臂/小臂=电流判据触发即报警（fail-hold 软件无法卸力）；爪开合 SG90=热保护→grab 拍板停脉冲；手腕全程保持=热保护禁用、仅报警兜底）：电流堵转/热保护/卸力/缓动恢复 | `Act_Init/SetTarget/Update(now_ms)/Release/IsSettled/IsStalled/NeedsCooldown`（5 实例，电流源函数指针注入） | **servo**（登记例外）, algorithm |
+| power | ✅S6 | 功率采样换算：窗口均值 + 标定宏，换算点全系统唯一 | `Power_GetVoltage/Current/Power` / `Power_GetJointCurrent(k)` | bsp_adc |
+| algorithm | ✅W2.1 | PID（**移植自 control-2026 controller，去 arm_math 适配+三修复**）/ 一阶低通 / 缓动 / user_lib 四函数；纯 C 可 PC 单测 | 纯函数 | 无（PID 内部 dt 自算用 bsp_sys） |
 | oled | ✅S7 | SSD1306 驱动与排版；功率/电压/电流/电量四项（检录项）；afiskon/stm32-ssd1306 移植改造（MIT），手册对照清单落 oled.h 头部 | `Oled_Init` / `Oled_Printf(x,y,...)` / `Oled_Refresh`（连败自动重发 init 自愈） | bsp_iic |
-| alarm | W2 | 故障码 → 声光（蜂鸣器节奏 + LED 状态码），非阻塞 | `Alarm_Set(code)` / `Alarm_Poll` | bsp_gpio |
+| alarm | ✅W2.4 | 故障码 → 声光（无源蜂鸣器 PWM 方波音型 + LED1 同相），非阻塞；码表 ACT_STALL 定案（原规划 ACT_TIMEOUT 与堵转语义合并） | `Alarm_Set(code)` / `Alarm_Get` / `Alarm_Poll`（绝对时间推进音型相位） | bsp_gpio, bsp_pwm |
+| kinematics | 封存 | 机械臂平面 3R 运动学+直线插补+TOOL/OPEN/NORMAL 三模式闭式逆解——已实装，因直线进给 x 向漂移未决整链封存 `kinematics-pending` 支线待重启 | `Kin_Fk` / `Kin_IkTool/IkOpen/IkNormal` / `Kin_LineStart/LineStep`（API 重启后冻结） | 无（纯函数；参数在 robot_config §3.9 段） |
 
 ### 3.4 UserApp（应用）
 
@@ -152,11 +163,13 @@ CubeMX 生成代码（Core/Drivers/Middlewares）+ 启动文件 + FreeRTOS 内�
 | 任务 | 周期 | 优先级 | 输入 | 输出 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | remote_task | IRQ 驱动 + 20ms 兜底（实际实现） | 高 | nRF24 RX FIFO（SPI2 读取） | 帧队列 → W2 起 RC_Cmd（唯一写者） | ✅S2（业务形态） |
-| chassis_task | 1~2 ms | 高 | RC_Cmd 快照 | 4×目标转速 → motor | W2 |
-| grab_task | 10~20 ms | 中 | RC_Cmd 快照 | Act_SetTarget；状态机推进 | W2 |
+| chassis_task | 1 ms（速度环节拍） | 高 | RC_Cmd 快照 → chassis_ctrl 三步链 | 4×目标转速 → motor | 业务纯函数 ✅22fe2ee，task 接线待建 |
+| grab_task | 10~20 ms | 中 | RC_Cmd 快照 → grab_ctrl 速率积分 | Act_SetTarget×5 | 业务纯函数 ✅22fe2ee，task 待建 |
 | sense_task | 20~50 ms | 低 | **Modules/power 换算结果** | 排版 → oled | W2（换算已上浮 power） |
 | daemon_task | 100 ms | 低 | 各模块心跳 | 故障码 → alarm；喂独立看门狗 | W2 |
 | App_TestBench_T | 10ms Poll / 2s 心跳 | Normal | ROBOT_TEST_BENCH 选择 | 测试项输出 + 栈高水位自证 | ✅S2 |
+
+【v1.3】chassis_ctrl/grab_ctrl 业务纯函数与 PcTwin 桥（twin_harness+ws_bridge，跑固件同款源文件）已随 22fe2ee 交付，任务规格、协议口径表与冻结表见《UserApp层开发规划.md》；PcTests PC 单测 291 checks。kinematics 消费待其支线重启。
 
 ## 四、层间依赖规则（强制，commit 前自查）
 
@@ -208,18 +221,19 @@ uint32_t Remote_GetTxFailCount(void);
 ```
 
 ```c
-/* motor.h（原 dcmotor.h）—— W2 冻结；S5 先交付开环半（接口骨架，详见 Modules 规划 §3.1） */
-/* S5：Motor_Init / Motor_SetDuty(ch,±1.0f) / Motor_Enable / Motor_Disable          */
-/* W2：Motor_SetSpeedRpm(ch,rpm) / Motor_GetSpeedRpm(ch)（内嵌 PID，algorithm 就绪后填） */
+/* motor.h（原 dcmotor.h）—— ✅W2.3 冻结（2026-10-07/09：SetSpeedRpm/GetSpeedRpm/SpeedLoopUpdate
+   + 调试接口 GetDuty/GetIout/SetTune/GetTune，详见 Modules 规划 §3.1 结算）                    */
 ```
 
 ```c
-/* actuator.h —— 规划 5.1 接口 + 保护内建；W2 冻结。
-   【2026-10-01 勘误】PWM 舵机无位置反馈：is_arrived 不成立 → is_settled（开环假定）；
-   【二次修正】MOVING 时长=指令斜坡 T_move 是确定性事件，"运动超时"判据不存在。
-   【三次修正】器件分型决定保护能力：数字舵机（大臂/小臂，fail-hold）停脉冲≠卸力、锁存后恒供电
-   （热保护无意义），唯一真判据=电流，触发后软件只能报警；SG90（手腕/爪子，模拟）停脉冲=真卸力、
-   热保护有效。详见 Modules 规划 §3.3 保护矩阵 */
+/* actuator.h —— ✅W2.4 冻结（2026-10-13 板验收官+合并 caf12af）。实装 API=
+   Act_Init / Act_SetTarget / Act_Update(now_ms 调用方注入抗回绕) / Act_Release /
+   Act_IsSettled / Act_IsStalled / Act_NeedsCooldown + ActConfig_t（电流源函数指针注入、
+   5 实例静态于 grab_task），见 Modules 规划 §3.3 结算——下方 v1.0 草案结构体仅存历史。 */
+/* 【2026-10-01 三次修正的历史记录】PWM 舵机无位置反馈：is_arrived 不成立 → is_settled（开环假定）；
+   MOVING 时长=指令斜坡 T_move 是确定性事件，"运动超时"判据不存在；器件分型决定保护能力：
+   数字舵机（大臂/小臂，fail-hold）停脉冲≠卸力、锁存后恒供电（热保护无意义），唯一真判据=电流；
+   SG90（手腕/爪开合，模拟）停脉冲=真卸力、热保护有效。详见 Modules 规划 §3.3 保护矩阵 */
 typedef struct Actuator {
     ActType  type;                 /* SERVO / 预留 */
     void    *hw;                   /* servo 通道上下文（经 servo 层，不直连 bsp_pwm） */
@@ -244,7 +258,7 @@ void Act_Update(Actuator *a, uint32_t now_ms); /* grab_task 周期调：斜坡/�
 
 | 项 | control-2026 | 本赛方案 | 理由 |
 | --- | --- | --- | --- |
-| 芯片支撑 | Hardware/stm32-f4、stm32-h7 | **CubeMX 生成 Hardware/F103RC（HAL）**【v1.1 定稿】 | 主控 STM32F103RCT6；生成即正确，手写库收益低 |
+| 芯片支撑 | Hardware/stm32-f4、stm32-h7 | **CubeMX 生成 Hardware/F407VE（HAL）**【v1.3：F103RC→F407VG（10-05）→F407VE（10-07），旧工程封存】 | 主控 STM32F407VET6；生成即正确，手写库收益低 |
 | 应用间通信 | message_center 发布/订阅 | 共享 Cmd 结构体 + 快照拷贝 | 48 KB SRAM 裁剪；仅 5 个任务，无多源指令汇聚需求 |
 | 电机模块 | DJMotor / CAN 电调 | motor（PWM + TB6612 + 编码器）【v1.1 更名】 | 执行器体系整体不同 |
 | robot_cmd 大脑 | 独立 robot_cmd 应用做指令映射 | 收敛进 remote 模块 + 各应用自映射 | 单板单链路（仅遥控器一个指令源），无需独立大脑应用 |
@@ -268,5 +282,5 @@ void Act_Update(Actuator *a, uint32_t now_ms); /* grab_task 周期调：斜坡/�
 6. ✅ 栈高水位常驻测试台心跳（优于一次性普查，App_TestBench_T 每 2s 自证并随日志输出）。
 
 ---
-编制：2026-09-27（v1.0，配套《机甲夺矿》电控开发计划 v1.0）| v1.1 修订：2026-09-30（依据 BSP S0~S4 验收实况）
-姊妹篇：《BSP层开发规划》v1.2（实施细则 + 测试台规范 §十）、《Modules层开发规划》v1.0（L3 排期与接口定稿）
+编制：2026-09-27（v1.0，配套《机甲夺矿》电控开发计划 v1.0）| v1.1 修订：2026-09-30（依据 BSP S0~S4 验收实况）| v1.2 修订：2026-10-03（S7 结算，L2 收官）| v1.3 修订：2026-10-13（换板 F407VET6 全量对齐 + W2.3/W2.4 结算 + 过时表述清理）
+姊妹篇：《BSP层开发规划》v1.3（实施细则 + 测试台规范 §十）、《Modules层开发规划》v1.2（L3 排期与接口定稿）、《UserApp层开发规划》v1.0（业务链与孪生桥）

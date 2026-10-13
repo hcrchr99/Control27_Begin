@@ -1,7 +1,7 @@
-# 《机甲夺矿》Modules 层开发规划 v1.1
+# 《机甲夺矿》Modules 层开发规划 v1.2
 
-> 上游：《RM校内赛代码分层架构》v1.1（2026-09-30 修订，L3 清单与接口定稿的裁决记录在案）。  
-> 姊妹篇：《BSP层开发规划》v1.2（S0~S4 已验收；测试台规范见其 §十，**本文所有验收均按该规范登记测试台**）。  
+> 上游：《RM校内赛代码分层架构》v1.3（2026-10-13 修订，主控换板 F407VET6 后全量对齐）。  
+> 姊妹篇：《BSP层开发规划》v1.3（S0~S7 已验收；测试台规范见其 §十，**本文所有验收均按该规范登记测试台**）。  
 > 依据：BSP S0~S4 落地实况与经验（remote 双板联调 W1 验收、nRF24 三处手册级修复、测试台常驻机制）。
 
 ## 一、Module 层定位与边界
@@ -75,7 +75,9 @@ float Motor_GetSpeedRpm(MotorCh_t ch);           /* Encoder_Read × ROBOT_ENC_PP
 
 **验收（S5）**：四路开环正反转（duty 阶梯 200/500/1000；【2026-10-03】float 化后为 0.2/0.5/1.0），方向与编码器计数符号交叉验证；Disable 后手转轮无阻力矩（STBY 断）。测试台 **6=MOTOR**。
 
-### 3.2 servo —— 舵机 ×4（S5，器件层）
+> **W2.3 结算（2026-10-07 代码+板上整定，10-09 整定台收尾；50d61df + 5dcd002）**：速度环三接口落地——`Motor_SetSpeedRpm`（钳位+NaN 保留）/ `Motor_GetSpeedRpm`（读测速窗缓存）/ `Motor_SpeedLoopUpdate`（1kHz 节拍挂 chassis_task；测速窗 20ms 滚动，折算按 Bsp_GetUs 实测窗长——CALC_MS 语义="窗长下限拍数"，标称折算曾致读数 ×2 见坑册）；4 路 PID（积分限幅+梯形+微分先行+微分滤波）`MaxOut=1.0f` 直喂 duty。**板上整定终值 Kp=0.0058/Ki=0.09（INTEGRAL_LIMIT 0.65，空载粗标**——换电源模块后系统增益 ≈305rpm/duty、LINES=13/GEAR=30/PPR=1560、MAX_RPM=600 用户重标，**带载细调挂实车阶段**）。调试接口 `Motor_GetDuty/GetIout/SetTune/GetTune` 随整定台 **13=TUNE** 交付（bumpless 改参、JustFloat 回传、[EVT] 黑匣子）。板上过验：开环六窗符号判读全 O；±30/±60 阶跃零稳态误差、无振荡。
+
+### 3.2 servo —— 舵机 ×5（S5，器件层）
 
 > **与 actuator 的分层关系**：本模块只回答"怎么动"（器件知识：脉宽↔角度、软限位、卸力），不知道"何时动、动多久"；actuator（§3.3）是保护策略层，回答"何时动/动多久"，包装本模块而不重复其知识。数据流：grab_task → Act_SetTarget →（Act_Update 状态机）→ Servo_SetAngle / Servo_Release → bsp_pwm TIM5。
 
@@ -83,14 +85,17 @@ float Motor_GetSpeedRpm(MotorCh_t ch);           /* Encoder_Read × ROBOT_ENC_PP
 
 | 关节 | 器件 | 类型 | 保持/卸力行为 |
 | --- | --- | --- | --- |
-| 大臂 / 小臂 | 数字舵机 ×2（PM10S 级：金属齿 25T、9~13kg·cm、0.13~0.18s/60°、脉宽 0.5~2.5ms、空载 100mA） | 数字，**fail-hold** | **发一次脉冲即锁存保持，此后停发脉冲≠卸力**（内部闭环照常出力）；软件无卸力手段，真卸力需供电断开（硬件 MOS 开关，见硬件建议） |
-| 手腕 | SG90（~1.8kg·cm，塑料齿） | 模拟 | 需持续 50Hz 脉冲保持；**停发脉冲 = 真卸力**（Pwm_Release 即可）；业务上**全程保持不松** |
-| 爪子 | SG90（定案 2026-10-01，360° 方案作废），齿轮组传动，矿物轻 | 模拟位置模式 | 同手腕：需持续 50Hz 脉冲、停发脉冲=真卸力；夹持出力间歇短时 |
+| 大臂 / 小臂（ID1/2） | 数字舵机 ×2（PM10S 级：金属齿 25T、9~13kg·cm、0.13~0.18s/60°、脉宽 0.5~2.5ms、空载 100mA） | 数字，**fail-hold** | **发一次脉冲即锁存保持，此后停发脉冲≠卸力**（内部闭环照常出力）；软件无卸力手段，真卸力需供电断开（硬件 MOS 开关，见硬件建议） |
+| 手腕（ID3） | SG90（~1.8kg·cm，塑料齿） | 模拟 | 需持续 50Hz 脉冲保持；**停发脉冲 = 真卸力**（Pwm_Release 即可）；业务上**全程保持不松** |
+| 爪开合（ID4） | SG90（定案 2026-10-01，360° 方案作废），齿轮组传动，矿物轻 | 模拟位置模式 | 同手腕：需持续 50Hz 脉冲、停发脉冲=真卸力；夹持出力间歇短时 |
+| 爪旋转（ID5）【2026-10-05 新增第 5 路】 | SG90 | 模拟 | 同 SG90：停脉冲=真卸力；爪板旋转姿态用 |
+
+> **PWM 分组定案（2026-10-05，"不同帧率不能共 TIM"落地）**：ID1/2=PM10S → **TIM9 CH1/CH2（PE5/PE6）@250Hz**（PM10S 支持 50~330Hz，2500µs 脉宽 < 4ms 帧长）；ID3/4/5=SG90 → **TIM5 CH1/2/3（PA0/PA1/PA2）@50Hz**。两组均 2µs/步。
 
 ```c
-typedef enum { SERVO_ID1 = 0, SERVO_ID2, SERVO_ID3, SERVO_ID4, SERVO_COUNT } ServoId_t;
+typedef enum { SERVO_ID1 = 0, SERVO_ID2, SERVO_ID3, SERVO_ID4, SERVO_ID5, SERVO_COUNT } ServoId_t;
 /* ID 与关节映射、器件型号进 robot_config.h（SERVO 组每 id 独立配置脉宽/限位/型号）；
- * 按构型：ID1=大臂(数字) ID2=小臂(数字) ID3=手腕(SG90) ID4=爪子(SG90)——以实机布线为准 */
+ * 按构型：ID1=大臂(数字) ID2=小臂(数字) ID3=手腕(SG90) ID4=爪开合(SG90) ID5=爪旋转(SG90)【2026-10-05 增 ID5】 */
 bool Servo_InitAll(void);                        /* 数字舵机发一次目标脉冲；SG90 发中位脉冲 300ms 再可控 */
 void Servo_SetAngle(ServoId_t id, float deg);    /* 0..180；软限位钳位后 deg→us 换算（每 id 独立标定） */
 bool Servo_Release(ServoId_t id);                /* 返回=本次是否真卸力【2026-10-03 变更 void→bool】；
@@ -101,9 +106,11 @@ bool Servo_CanUnload(ServoId_t id);              /* 能力查询：该 id 软件
                                                   * 无副作用，且器件解释权收在 servo 一处） */
 ```
 
-**实现要点**：① 脉宽↔角度线性映射按每 id 独立标定（`ROBOT_SERVO_PULSE_MIN/MAX_US[id]`）——PM10S 标称 0.5~2.5ms、SG90 标称 500~2500µs 但实际行程普遍不足 180°，**全部待实机标定**；② 软限位每关节独立（`ROBOT_SERVO_LIMIT[SERVO_COUNT][2]`，占位 ±5° 待结构定）；③ 四通道持续 50Hz 发脉冲（SG90 必需，数字舵机无害且行为统一），`Pwm_Release` 仅用于 SG90 卸力与全关断；④ Init 的"中位 300ms"与 bsp_pwm 的"上电 0 脉宽"构成两级安全链；⑤ S5 开工时同步 `robot_config.h` 的 `ROBOT_SERVO_COUNT` 3→4 并填器件分型表。
+**实现要点**：① 脉宽↔角度线性映射按每 id 独立标定（`ROBOT_SERVO_PULSE_MIN/MAX_US[id]`）——PM10S 标称 0.5~2.5ms、SG90 标称 500~2500µs 但实际行程普遍不足 180°，**全部待实机标定**；② 软限位每关节独立（`ROBOT_SERVO_LIMIT[SERVO_COUNT][2]`，占位待机械限位定）；③ 持续发脉冲按分组建帧率（PM10S@250Hz、SG90@50Hz），`Pwm_Release` 仅用于 SG90 卸力与全关断；④ Init 的"中位 300ms"与 bsp_pwm 的"上电 0 脉宽"构成两级安全链；⑤ 【2026-10-05 更新】`ROBOT_SERVO_COUNT`=5（原 3→4 再→5），器件分型表随第 5 路扩展完毕。
 
-**验收（S5）**：上电缓至中位无猛冲；0→90→180° 扫描平滑；SG90 Release 后手掰无保持力矩；**数字舵机停脉冲后仍保持（验证 fail-hold 特性并记录）**。测试台 **7=SERVO**。
+**验收（S5）**：上电缓至中位无猛冲；0→90→180° 扫描平滑；SG90 Release 后手掰无保持力矩；**数字舵机停脉冲后仍保持（验证 fail-hold 特性并记录）**。测试台 **7=SERVO**（W2.4 扩 `W<id><us>` 直发脉宽绕软限位 + `Q` 卸力 + `G` 原自动序列）。
+
+> **【2026-10-13 实测】PM10S 空载死区 ≈16µs ≈ 2.2°**（手册标称 3µs 的五倍；示波器证发波链如实跟步、时基 2µs/步无误——纯舵机本体特性）。SG90 三个待测；死区数与 PULSE/LIMIT 端点同挂"调整阶段"回填 robot_config。开环定位精度预算与运动学画线验收线按此校准。
 
 **硬件建议（转硬件组，影响保护闭环）**：① 数字舵机供电回路加 GPIO 控制的 MOS 开关——没有它，大臂/小臂堵转时软件只能报警不能动作（fail-hold 锁住出力）；② 电流采样（ADC3 IN12/13）量程按大舵机堵转设计（0~3A 级，采样电阻+运放，阈值待实测）；③ SG90 与大舵机分路供电，避免小舵机噪声污染大舵机电流采样。
 
@@ -157,9 +164,15 @@ HOLDING --供电累计超限（仅 SG90）--> 置 NeedsCooldown（软模式：gr
 
 **爪子器件定案（2026-10-01，与结构组确认）：SG90，360° 速度模式方案作废**——四路舵机全部位置模式，`Servo_SetAngle`/actuator 角度斜坡全链适用，servo.h **S5 验收即冻结**（无悬案）。
 
-**实现要点**：① 状态机、判据、累计器全在 `Act_Update` 节拍内闭环，不经 daemon；② 电流获取走**依赖注入**（config 函数指针），actuator 不知道 power 存在——不新增第二个模块间 include 例外，PC 单测可注入模拟电流源；③ 实例的器件能力经 `Servo_CanUnload(id)` 查询（actuator→servo 唯一登记例外内的合法调用；【2026-10-03 改名】原 ReleaseCutsPower），Release 分支按能力表走；④ 实例由 grab_task 持有（静态 4 份），斜坡/确认计时/累计器纯逻辑可 PC 单测；⑤ 滑动累计器：环形桶数组（30×1s 桶），Release/IDLE 期间不累加；用滑动窗口而非连续计时——堵转可"卡一下松一下"绕过连续计时器，滑动窗口里休息只能靠老桶出窗"还款"，歇不够就攒不回来；参数整定三步：数任务（比赛全序列最长连续出力秒数）→ 上限=任务极限×~1.3 → 实车重载全程验证不误触发（太小=运输途中被强制冷却掉矿，太大=堵转烧机前保护未到限）。
+**实现要点**：① 状态机、判据、累计器全在 `Act_Update` 节拍内闭环，不经 daemon；② 电流获取走**依赖注入**（config 函数指针），actuator 不知道 power 存在——不新增第二个模块间 include 例外，PC 单测可注入模拟电流源；③ 实例的器件能力经 `Servo_CanUnload(id)` 查询（actuator→servo 唯一登记例外内的合法调用；【2026-10-03 改名】原 ReleaseCutsPower），Release 分支按能力表走；④ 实例由 grab_task 持有（静态 5 份），斜坡/确认计时/累计器纯逻辑可 PC 单测；⑤ 滑动累计器：环形桶数组（30×1s 桶），Release/IDLE 期间不累加；用滑动窗口而非连续计时——堵转可"卡一下松一下"绕过连续计时器，滑动窗口里休息只能靠老桶出窗"还款"，歇不够就攒不回来；参数整定三步：数任务（比赛全序列最长连续出力秒数）→ 上限=任务极限×~1.3 → 实车重载全程验证不误触发（太小=运输途中被强制冷却掉矿，太大=堵转烧机前保护未到限）。
 
 **验收（W2.4）**：SetTarget 后斜坡走完转 HOLDING（示波器：SG90 通道脉冲从步进变恒定），SG90 正常保持永不被自动卸力；人为阻滞大臂（数字+电流）→ 超阈值持续 `stall_confirm_ms` 触发 `Act_IsStalled`+报警，瞬时冲击不误触发；人为制造爪子长供电 → `Act_NeedsCooldown` 置位且夹矿时不强制卸力（手腕实例热保护已禁用、全程保持不误报）；数字舵机 Release 后实测仍锁存（记录入验收日志）。测试台 **10=ACTUATOR**。
+
+> **W2.4 结算（2026-10-10 代码快照 w2.4-pending，2026-10-13 板验收官+合并 caf12af）**：
+> - **实装 API 冻结**：`Act_Init` / `Act_SetTarget` / `Act_Update(now_ms)`（时间调用方注入 u32 抗回绕）/ `Act_Release` / `Act_IsSettled` / `Act_IsStalled` / `Act_NeedsCooldown`；状态机 IDLE/MOVING/HOLDING/RELEASED——堵转=电流超阈持续 confirm_ms **自动 Release+锁存**（SetTarget 清锁存重起判）；热保护=30×1s 环形桶滑窗按真实时间滑动（长眠大步长防御全清）、超限只置 hot 不强制卸力、连续 cooldown_ms 未供电自动解除；首拍 timed 校准防巨大 dt 瞬移。电流走 `get_current_a` 注入（NULL=无判据），零 bsp/power 依赖可 PC 单测（servo_stub 替身，40+ checks 全绿）。
+> - **板上验收（新 F407VET6）**：缓动/卸力/状态行/300ms 中位锁定窗过验；alarm 联验全过（见 §3.6 结算）。**堵转电流判据与热保护实测后延**——需电流采样电路+真实负载，挂实车阶段（与 ROBOT_POWER_JOINT_I_K 标定同窗）。
+> - **配套**：测试台 10=ACTUATOR（`A<id><deg>/R<id>/S/L<n>/H` 命令走 UART4@921600）；标定台 7=SERVO 扩 `W<id><us>` 直发脉宽 + `Q` 卸力 + `G` 自动序列；参数段进 robot_config.h（EASE_DPS=120/STALL_CURRENT_A=1.5 占位/STALL_CONFIRM_MS=300/ENERGIZE_WINDOW 30s·MAX 20s）。
+
 ### 3.4 power —— 功率采样换算（S6，与 bsp_adc 同日接力）
 
 > 自架构文档 sense_task 上浮为本模块（v1.1 裁决）：换算可脱离整车测试、标定点全系统唯一。
@@ -199,15 +212,20 @@ void Oled_Refresh(void);                                     /* 帧缓冲 → I�
 ```c
 typedef enum {
     ALARM_OK = 0, ALARM_LINK_LOST, ALARM_POWER_LOW,
-    ALARM_TASK_OVERRUN, ALARM_ACT_TIMEOUT, /* …追加只增不改 */
+    ALARM_TASK_OVERRUN, ALARM_ACT_STALL, /* 【2026-10-10 定案】原规划 ACT_TIMEOUT 与 actuator
+                                          * 堵转语义合并取 STALL；TIMEOUT 留 W2.5 grab。追加只增不改 */
 } AlarmCode_t;
-void Alarm_Set(AlarmCode_t code);   /* 非阻塞，仅记录当前码 */
-void Alarm_Poll(void);              /* 非阻塞节奏发生器：蜂鸣音型 + LED 闪烁码，daemon 100ms 调 */
+void Alarm_Set(AlarmCode_t code);   /* 非阻塞，仅记录当前码（单码覆盖、越界忽略） */
+void Alarm_Poll(void);              /* 非阻塞节奏发生器：绝对时间推进音型相位（调用频率无关），
+                                     * 声光同相——蜂鸣器音型 + LED1 同步闪；OK 静音且让位心跳 */
+AlarmCode_t Alarm_Get(void);
 ```
 
-**实现要点**：① 底层全走 bsp_gpio（PIN_LED1/LED2/ALARM 宏已有）；② 音型/闪码表进本头文件注释，同码同灯；③ 与测试台心跳共用 LED1 时注意——测试台激活时本模块随业务任务 Yield。
+**实现要点**：① 【2026-10-10 改造】蜂鸣器为**无源件**，`Pwm_SetDuty(PWM_TIM14_CH1, 0.5/0.0)` 方波激励（响=50% duty、停=0），音调频率=TIM14 时基（**1282Hz 板上听感定案**，低于谐振 2.7~4kHz 可接受；改频须 .ioc 调 TIM14 后同步 bsp_pin.h 的 PIN_PWM14_ARR）；LED1 报警期接管、OK 归还心跳域；原 GPIO 直驱方案（PIN_ALARM 宏组）作废删除。② 音型表进 `alarm.c`（seq[] 交替存响/停 ms，偶下标=响），追加码三处同步：枚举/音型表/越界上界。③ 与测试台心跳共用 LED1 时注意——测试台激活时本模块随业务任务 Yield。
 
 **验收（W2.4）**：注入失联（停发射频）→ ALARM_LINK_LOST 音型出现；恢复自动回 OK。不单独占测试台编号，随 10=ACTUATOR 项联验。
+
+> **W2.4 结算（2026-10-13 板验）**：四码音型表落 `alarm.c`——失联 200/200/200/1400、低压 800/800、超期 100/100×3/1500、堵转 600/200/100/100/100/2000（ms，响/停交替）。测试台 10 的 `L<n>` 命令注入联验全过：L1~L4 音型节奏对表、LED1 响亮停灭同相、报警中直接切码（单码覆盖）、L5 越界防御、L0 静音+LED1 归还 1Hz 心跳；蜂鸣器响停切换干净、音调 1282Hz 定案不改频。
 
 ### 3.7 algorithm —— 纯算法库（W2 第一项，速度环与 actuator 的前置）
 
@@ -298,6 +316,8 @@ bool RC_Cmd_GetCopy(RC_Cmd_t *out);        /* 唯一读法：关调度内 memcpy
 
 ### 3.9 kinematics —— 机械臂平面运动学（2026-10-04 新增构想，机械臂硬件落地后实施）
 
+> **【2026-10-13 状态：已实装，封存支线待重启】** 本节构想已全部实装（FK + TOOL/OPEN/NORMAL 三模式闭式 IK + `Kin_LineStart` 全线预扫/`Kin_LineStep` 插补 + 姿态宏 + 法向平移 + 孪生 T 行五模式，含 2026-10-12 标定两根因修复），但因用户实操判"实现效果不甚理想"（主诉=**直线进给始终有 x 向漂移**），整链 42 文件封存支线 `kinematics-pending`（e4ae36f）待重启——**重启第一事=猎 x 漂移根因 + 对表 TCP0 网格实测 vs links.json 几何链**。实测约束更新：PM10S 空载死区 ≈2.2°/关节（§3.2），原"画线 100mm 偏移 ≤2mm"验收线在开环下不可达，重启时重议（单向逼近可挽回大半）。下述 API 草案与实装有出入，以支线代码为准。测试台编号 12 曾被 DWT 台短暂占用后撤销，按"只增不改"作废顺延（13=TUNE），kinematics 上板台重启时另配新号。
+
 > **归属变更记录**：架构 §八与 §3.7 原裁决"IK 暂不启用（2026-10-01）"，2026-10-04 构型定案后升级为独立小节；纪律沿用 algorithm 同款——纯函数、零硬件依赖、PC 单测先行，API 未冻结（本节为构想，实机对表后定稿）。
 >
 > **构型依据（2026-10-04 装配体arm.STEP 解析）**：平面 3R——肩/肘（PM10S 数字，§3.2 分型）+ 腕（SG90），**无底盘回转**；三关节轴平行于开合方向 Y，臂运动面 = XZ 竖直平面；爪两指沿 Y 开合、⟂ 臂面 → "垂直于开合方向的直线"（水平进给/竖直下压）天然落在 3R 工作平面内，**平面逆解即可，无空间联动需求**。杆长初值 L1≈160 / L2≈90 / L3（腕→爪尖）≈70 mm，以 STEP 精提 + 实机标定为准。
@@ -338,16 +358,16 @@ bool Kin_LineStep(KinLine_t *ln, float j_deg[3]);       /* 每 10~20ms 节拍推
 | S7 | 10/7 | ✅ bsp_iic → oled（2026-10-03 板上过验） | 四项显示对表/排线拔插自愈/地址参数化探测全过（§3.5 结算） | 9=OLED |
 | W2.1 | 10/8 | ✅ algorithm 冻结 + PC 单测（2026-10-06 完成） | 边界用例全过（host 编译，110 checks 全绿） | —（PC） |
 | W2.2 | 10/8 | ✅ rc_cmd 板上双板过验（2026-10-07，A1~A4 全项；PC 163 全绿） | estop ≤50ms；失联向零衰减 | 11=RC_CMD |
-| W2.3 | 10/8 | motor 速度环 | 阶跃响应无超调振荡（整定记录进 robot_config.h 注释） | 随 6=MOTOR |
-| W2.4 | 10/9 | actuator + alarm | 限时/缓动/卸力时序正确；故障音型正确 | 10=ACTUATOR |
-| W2.5 | 10/9 | **全测试台回归**（编号 0~11 逐项重跑）+ 交接 UserApp | 全绿；chassis/grab 开跑 | 全部 |
-| W2+ | 待机械臂硬件 | kinematics（PC 单测可随 W2.1 先行；上板验收待实物+关节标定） | 逆解往返/奇异拒绝全过；画线 100mm 偏移 ≤2mm | 12=KINEMATICS |
+| W2.3 | 10/8 | ✅ motor 速度环（2026-10-07 板上整定，10-09 整定台 13=TUNE 收尾） | 阶跃零稳态误差/无振荡（终值 Kp=0.0058/Ki=0.09 空载，带载细调挂实车） | 6=MOTOR + 13=TUNE |
+| W2.4 | 10/9 | ✅ actuator + alarm（2026-10-13 板验收官，合并 caf12af 回主线） | 缓动/卸力/状态/声光音型全过；堵转/热保护判据需采样电路，后延实车 | 10=ACTUATOR |
+| W2.5 | 10/9 | **全测试台回归**（编号 0~11+13 逐项重跑，12 作废）+ 交接 UserApp | 全绿；chassis/grab 开跑 | 全部 |
+| W2+ | 支线待重启 | kinematics（已实装封存 kinematics-pending e4ae36f；重启先猎直线 x 漂移，见 §3.9 注） | 逆解往返/奇异拒绝全过；画线验收线按实测死区（2.2°/关节）重定 | 上板台重启时定 |
 
 依赖链：algorithm →（速度环、actuator）；bsp_adc → power；bsp_iic → oled；S5 两模块仅依赖已验收 BSP，**可立即开工**。提交规范继承 BSP 规划 §六（每阶段 ≥1 次功能小提交、作者真名、message 注明验收结果）。
 
 ## 五、与 UserApp 的交接约定
 
-- **冻结时点表**：remote.h ✅已冻结 / motor·servo S5 验收即冻结 / power S6 / **oled ✅S7 冻结（2026-10-03，`Oled_Init` / `Oled_Printf(x,y,...)` / `Oled_Refresh` 只修 bug 不改签名）** / **algorithm ✅W2.1 冻结（2026-10-06，`PIDInit/PIDCalculate` / `Lpf_Init/Lpf_Apply` / `Ease_Step` / user_lib 四函数，见 §3.7 结算）** / **rc_cmd ✅W2.2 帧布局与 API 冻结（2026-10-06：RCPayload 15B joint[5] / `RC_Cmd_Init` / `RC_Cmd_Update(f,now_ms)` / `RC_Cmd_GetCopy`，见 §3.8 结算；板上验收不改签名）** / actuator·alarm W2.4 / kinematics 构想期（§3.9，API 实机对表后冻结）。冻结后只修 bug 不改签名，新需求走版本演进。
+- **冻结时点表**：remote.h ✅已冻结 / motor ✅S5+W2.3（`SetDuty/Enable/Disable/SetSpeedRpm/GetSpeedRpm` + 调试 `GetDuty/GetIout/SetTune/GetTune`）/ servo ✅S5（**×5**：`Servo_InitAll/SetAngle/Release/CanUnload`）/ power ✅S6 / **oled ✅S7 冻结（2026-10-03，`Oled_Init` / `Oled_Printf(x,y,...)` / `Oled_Refresh` 只修 bug 不改签名）** / **algorithm ✅W2.1 冻结（2026-10-06，`PIDInit/PIDCalculate` / `Lpf_Init/Lpf_Apply` / `Ease_Step` / user_lib 四函数，见 §3.7 结算）** / **rc_cmd ✅W2.2 帧布局与 API 冻结（2026-10-06：RCPayload 15B joint[5] / `RC_Cmd_Init` / `RC_Cmd_Update(f,now_ms)` / `RC_Cmd_GetCopy`，见 §3.8 结算；板上验收不改签名）** / **actuator·alarm ✅W2.4 冻结（2026-10-13 板验+合并 caf12af：`Act_Init/SetTarget/Update/Release/IsSettled/IsStalled/NeedsCooldown` + `Alarm_Set/Get/Poll`，见 §3.3/§3.6 结算）** / kinematics 已实装封存（kinematics-pending 支线，API 重启后再冻结）。冻结后只修 bug 不改签名，新需求走版本演进。
 - robot_config.h 填充责任：Motor 组（SIGN/DEADBAND/PPR 实测值）、Servo 组（**器件分型表 id↔关节↔型号** + 每 id 脉宽/限位实机值 + 数字舵机**堵转阈值 STALL_CURRENT_A / 确认时长 STALL_CONFIRM_MS** + SG90 **热保护 ENERGIZE_WINDOW_MS·ENERGIZE_MAX_MS·COOLDOWN_MS**）、Power 组（V_K/I_K 标定值+日期）、Link 组（帧布局）——各模块验收时**顺手填掉占位**，不留"待实测"过夜。
 - 麦轮正逆解、机构状态机、按键映射归 UserApp（chassis/grab），本层不预置任何业务概念；IK 启用时放 algorithm，grab 接口不变。
 - 遥控器整机 = `Hardware/Remoter` 独立 CubeMX 工程（**现仅 .ioc 未生成**，W2 生成后开工），按 F103C8_PTX_T 已验证的模式接入：独立工程 + `CONFIG_REMOTE_UNIT`，复用本层 remote/rc_cmd。**F103C8_PTX_T 是 nRF24 链路测试板（S2 遗产：双板联调/载波/频偏/角色互换诊断），不承担遥控器职能。**
@@ -357,7 +377,7 @@ bool Kin_LineStep(KinLine_t *ln, float j_deg[3]);       /* 每 10~20ms 节拍推
 1. **TB6612 真值表想当然**：IN1/IN2 组合 00=滑行、11=**短路刹车**（不是停）；PWM 必须接 PWMA/B 脚而非 IN 脚——写码前逐条进 spec 对照清单。
 2. **电机序号/轮向未定**（README 明示由布线定）：映射表 robot_config.h 一处改，代码零改动；先开环+编码器符号交叉验证再闭环，**编码器符号 × 电机方向不一致 = 正反馈自激**。
 3. **PID 整定乱序**：先 P 后 I 再 D，抗积分饱和与输出限幅（对应 duty 满量程）必须内建而非外挂；整定参数注释进 robot_config.h（含日期与工况）。
-4. **舵机堵转（按器件分型，2026-10-01）**：两类舵机能力完全不同——数字舵机（大臂/小臂）fail-hold：发一次脉冲锁存保持，**停脉冲≠卸力、锁存后恒供电**（热保护对它无意义），唯一真判据是电流，触发后软件只能报警（真卸力需硬件供电开关）；SG90（手腕/爪子）模拟：停脉冲=真卸力；**但热保护只对"间歇出力"的关节有效**——手腕全程业务性保持（正常态=持续供电），时间代理无判别力，必须禁用，防线靠轻载+报警+操作手；无位置反馈：MOVING 时长=指令斜坡 T_move（确定性），勿幻想"运动超时"判据；正常保持与堵转在指令侧同貌。500~2500µs 全部待实机标定（PM10S 标称 0.5~2.5ms、SG90 实际行程普遍不足 180°）。
+4. **舵机堵转（按器件分型，2026-10-01）**：两类舵机能力完全不同——数字舵机（大臂/小臂）fail-hold：发一次脉冲锁存保持，**停脉冲≠卸力、锁存后恒供电**（热保护对它无意义），唯一真判据是电流，触发后软件只能报警（真卸力需硬件供电开关）；SG90（手腕/爪子）模拟：停脉冲=真卸力；**但热保护只对"间歇出力"的关节有效**——手腕全程业务性保持（正常态=持续供电），时间代理无判别力，必须禁用，防线靠轻载+报警+操作手；无位置反馈：MOVING 时长=指令斜坡 T_move（确定性），勿幻想"运动超时"判据；正常保持与堵转在指令侧同貌。500~2500µs 全部待实机标定（PM10S 标称 0.5~2.5ms、SG90 实际行程普遍不足 180°）。【2026-10-13 实测】PM10S 空载死区 ≈16µs≈2.2°（手册 3µs 的五倍，纯本体特性——发波链已示波器证清白）；开环定位精度预算按此校准，背隙实测后补"死区+背隙"全账。
 5. **SSD1306 初始化时序**：上电需稳定期，初始化序列缺一步就花屏；寻址模式（页/列）搞错=乱码但不报错——对照清单逐项打勾。【2026-10-03 已闭环】对照清单落 `Modules/oled.h` 头部（§8.1.5/§8.7/§10 逐节，含充电泵 0x8D 0x14 漏发=全黑）；S7 板上过验无花屏。
 6. **I²C 挂死**：OLED 排线接触不良会拉死 I²C2，超时+总线恢复（bsp_iic）是硬要求，禁止无限等（继承 BSP 坑 #10）。【2026-10-03 已闭环】bsp_iic 超时 20ms + 连败 3 次恢复落地；T3 拔插自愈过验（OLED 层连败 5 次自动重发 init 补齐"模块掉电"场景）。
 7. **ADC 取错位/首批样本**：32 位字拆分（低 ADC1/高 ADC2）与丢前 2 窗口，S6 第一件事是已知分压验证（继承 BSP 坑 #3/#4）。【2026-10-06 已闭环】字序经 CMSIS 位段（低半字=主机 ADC1/高半字=从机 ADC2）+ 板上双通道引脚实验定案；实际破的坑是双同步从机触发链（BSP 坑 #11/#12）与 VDDA 供电漂移（#13）。
@@ -367,7 +387,9 @@ bool Kin_LineStep(KinLine_t *ln, float j_deg[3]);       /* 每 10~20ms 节拍推
 11. **I²C2 预留插针（2026-10-01 硬件决策）**：PB10/PB11 总线上多留一组 4P 插针（3.3V/GND/SCL/SDA）作车端扩展槽——地址不冲突（OLED 0x3C vs IMU 0x68/0x6A/0x6B），插针上**不额外放上拉**（OLED 与 IMU 模块板载上拉并联即可，勿叠加第三个），电源引 3.3V 与 OLED 同域防混电平；**软件前提：S7 的 bsp_iic 必须地址参数化**——现有草案 `Iic_Write(buf,len)` 未带地址（隐含写死 OLED），须统一为 `Iic_Write/Read(addr,...)` 对称接口，作为 S7 验收点之一；杜邦线外接器件务必共地。【2026-10-03 软件前提已落实】`Iic_Write/Read/WriteReg/ReadReg/IsDeviceReady` 全部 7 位地址入参定稿，T4 探测过验（0x3C ACK/0x68 无 ACK）；硬件侧决议不变。
 12. **直线插补双重斜坡 / 奇异穿越（§3.9 预判）**：kinematics 与 actuator 各有限速 = 两重斜坡叠加，轨迹滞后变形且整定互相甩锅——铁律：直线模式插补节拍是时间主人，ease_dps > 插补峰值角速度，`Kin_LineStart` 校验违例拒绝；直线请求穿越肘伸直奇异区时关节角速度需求剧增，舵机跟不上末端"甩"出直线——全线预扫拒绝启动，不做绕行；PC 单测不覆盖机械背隙，双向往返偏差只能画线实测。
 
-## 七、资源预算增量（基线：BSP 规划 §八，剩余 ≥22 KB）
+## 七、资源预算增量（基线：BSP 规划 §八）
+
+> 【2026-10-13 注】下表为 F103RC 48KB 时代的预算口径，作历史保留；F407VET6（128K SRAM + 512K Flash）现状 **RAM 22.10% / FLASH 17.80%**，余量充裕——"新增大缓冲先登记"的纪律保留，数字无需再逐项抠。
 
 | 项 | 占用 | 说明 |
 | --- | --- | --- |
@@ -382,3 +404,4 @@ bool Kin_LineStep(KinLine_t *ln, float j_deg[3]);       /* 每 10~20ms 节拍推
 ---
 编制：2026-09-30 | 依据：BSP S0~S4 验收实况（81f732c）+ remote 双板联调经验 | 上游：架构 v1.1 / BSP 规划 v1.2
 修订：2026-10-04 v1.1 —— 新增 §3.9 kinematics 构想（机械臂平面运动学：STEP 构型解析 / 平面 3R 逆解 + 直线插补 / 测试台 12 预留），§3.7 IK 归属段同步更新，§四/§五/§六#12/§七 联动
+修订：2026-10-13 v1.2 —— W2.3/W2.4 结算块、servo ×4→×5（ID5=爪旋转+PWM 分组）、alarm ACT_STALL 定案与无源蜂鸣器改造、kinematics 封存注记（kinematics-pending）、§四 打勾与 W2.5 回归范围更正（0~11+13）、§六#4 实测死区、§七 F407 现状注记、过时表述清理

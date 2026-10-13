@@ -8,6 +8,8 @@
 > ① §2.1 "DMA Continuous Requests=Enabled" 与 §3 对应自检行是 **F4/L4 系概念——F103 的 ADC CR2 无 DDS 位**，.ioc 无此项不是漏配，循环 DMA 在 F1 持续搬运；
 > ② §4.1 启动函数应为 **`HAL_ADCEx_MultiModeStart_DMA`**（`HAL_ADC_Start_DMA` 在多模式下直接返回 HAL_ERROR，stm32f1xx_hal_adc.c 多模式分支）；
 > ③ **从机 ADC2 须补 `CR2.EXTTRIG`（HAL 缺口，CubeMX 填不了）+ `ContinuousConvMode=ENABLE`（CubeMX 可配，原工程漏配，已改 .ioc 源头）**——实测症状两阶段："永不触发（高半字恒 2000）"→"触发一拍即停（冻在单次采样值）"，详见 BSP 坑 #11/#12；另：ADC 基准=VDDA，供电形态变更必须复标（BSP 坑 #13）。
+>
+> **现状（2026-10-13）**：本文是 F103RC 时代方案文档。F407VE 上 ADC 已重构为**双 rank 双同步**（ADC1:IN4+IN12 / ADC2:IN5+IN13，ADC3 退役），见《BSP调试日志》二.4/二.5 与架构 v1.3 §3.2；本文正文保留作 F103 历史参考。
 
 ---
 

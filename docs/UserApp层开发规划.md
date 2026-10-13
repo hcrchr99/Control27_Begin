@@ -53,7 +53,7 @@
 |---|---|---|---|---|
 | remote_task | IRQ + 20ms 兜底 | 高 | nRF24 帧 → RC_Cmd 唯一写者 | ✅ W2.2 过验 |
 | chassis_task | 1ms（速度环节拍） | 高 | RC_Cmd 快照 → §3.2 四步链 → 4×Motor_SetSpeedRpm | 骨架在，逆解段待接 |
-| grab_task | 10~20ms | 中 | RC_Cmd 快照 → §3.3 积分链 → Act_SetTarget×5 | 待建（actuator 在 w2.4-pending 分支） |
+| grab_task | 10~20ms | 中 | RC_Cmd 快照 → §3.3 积分链 → Act_SetTarget×5 | 待建（actuator/alarm 已并主线 caf12af） |
 | sense_task | 20~50ms | 低 | Power 换算 → OLED 排版 | 未建 |
 | daemon_task | 100ms | 低 | 心跳 → Alarm 故障码；喂看门狗 | 未建 |
 
@@ -94,7 +94,7 @@ void Grab_Update(Grab_State_t *g, const float rate_cmd[5], uint32_t now_ms);
 
 ### 3.4 sense_task / daemon_task（未建，规划占位）
 
-sense：Power_Get* 换算 → OLED 四行排版（电压/电流/功率/链路状态）。daemon：各模块心跳收集 → Alarm_Set（码表追加只增不改）→ 看门狗喂狗；保护触发后的卸力时机（NeedsCooldown 后何时 Act_Release）在此拍板。两者都依赖 w2.4-pending 分支的 actuator/alarm 落地，换片板验后再建。
+sense：Power_Get* 换算 → OLED 四行排版（电压/电流/功率/链路状态）。daemon：各模块心跳收集 → Alarm_Set（码表追加只增不改）→ 看门狗喂狗；保护触发后的卸力时机（NeedsCooldown 后何时 Act_Release）在此拍板。两者依赖的 actuator/alarm 已随 W2.4 板验收官并入主线（caf12af），随时可建。
 
 ## 四、协议口径表（UserApp 段，2026-10-11 冻结草案）
 
@@ -122,12 +122,12 @@ sense：Power_Get* 换算 → OLED 四行排版（电压/电流/功率/链路状
 
 ## 六、回归与欠账
 
-**本轮已验（2026-10-11）**：PcTests 237 checks 全绿（新增 chassis_ctrl 20 + grab_ctrl 17）；twin_harness 管道烟测（手感整形/关节积分/急停闩锁/解除恢复逐项对账）；ws_bridge WS 握手+三帧往返烟测。固件构建：见提交说明（UserApp 新文件为纯逻辑，进固件 GLOB 需零告警）。
+**本轮已验（2026-10-11）**：PcTests 237 checks 全绿（新增 chassis_ctrl 20 + grab_ctrl 17）；twin_harness 管道烟测（手感整形/关节积分/急停闩锁/解除恢复逐项对账）；ws_bridge WS 握手+三帧往返烟测。固件构建：见提交说明（UserApp 新文件为纯逻辑，进固件 GLOB 需零告警）。【2026-10-13 更新】合并 w2.4-pending 后 PcTests **291 checks 全绿**（+test_actuator），业务纯函数在固件内暂无调用者、被 --gc-sections 回收属预期（消费者=task 层与 PC 侧）。
 
-**上板欠账（换片后，合并 w2.4-pending 一并结算）**：
+**上板欠账（换片与合并已完成 caf12af；剩余=task 接线+实机复标）**：
 
 1. chassis_task 接线：`RC_Cmd_GetCopy → 四步链 → Motor_SetSpeedRpm` + 使能权拍板；
 2. grab_task 建任务：Grab_Update → Act_SetTarget（actuator 5 实例）；
-3. 实机复标：满量程组 / 180°/s / 手感参数 / ROBOT_MOTOR_SIGN 方向映射 / Servo PULSE+LIMIT 表；
-4. 电机 PID 带载细调、编码器/ADC/RF 实链路回归（测试台 0→13 常规流程）；
-5. kinematics（§3.9 构想）PC 先行时，孪生 FK 遥测可做交叉验证——注意孪生暂无坐标模式（可用 §2.2 旧绝对量格式补）、腕转轴斜置需以 roll=0 位姿做平面验证。
+3. 实机复标：满量程组 / 180°/s / 手感参数 / ROBOT_MOTOR_SIGN 方向映射 / Servo PULSE+LIMIT 表（含五舵机死区数与端点扫描——W 模式直发脉宽，"调整阶段"清）；
+4. 电机 PID 带载细调（现值 Kp=0.0058/Ki=0.09 空载）、编码器/ADC/RF 实链路回归（测试台 0→11+13 常规流程，12 作废）；
+5. kinematics（已实装封存 kinematics-pending 支线，重启先猎直线 x 漂移）：重启后孪生 FK 遥测可做交叉验证——注意孪生已有坐标/直线/姿态/法向五模式（T 行），开环精度预算按实测死区 2.2°/关节重定。

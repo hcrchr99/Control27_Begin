@@ -15,6 +15,8 @@ Release/
 # CubeMX backups
 *.bak
 *~
+EWARM/
+MDK-ARM/
 
 # Tool byproducts (local, regenerable)
 .zcode/

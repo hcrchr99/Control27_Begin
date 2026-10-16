@@ -241,11 +241,11 @@
 #define ROBOT_APP_JOINT_RATE_DPS    180.0f      /* 关节速率满幅 °/s（孪生按舵机估值，可改） */
 
 /* 麦轮几何（CAD 实测，实车装配复核）：L=(轴距+轮距)/2，R=轮半径（含辊子包络） */
-#define ROBOT_APP_MECANUM_L_M       0.3075f
-#define ROBOT_APP_MECANUM_R_M       0.029f
+#define ROBOT_APP_MECANUM_L_M       0.156f
+#define ROBOT_APP_MECANUM_R_M       0.034f
 
 /* 底盘手感（摇杆曲线，实车调参只改这里） */
-#define ROBOT_APP_CHASSIS_DEADBAND  0.46f       /* 归一化量纲死区，内按零处理 */
+#define ROBOT_APP_CHASSIS_DEADBAND  0.25f       /* 归一化量纲死区，内按零处理 */
 
 /* ================================ Vofa =================================== */
 

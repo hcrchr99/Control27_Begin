@@ -16,7 +16,7 @@
 /* 通道宏：与 bsp_pin.h 的 PIN_ENC1~4_TIM 一一对应 */
 #define ENC_CH1     1u  /* TIM1  PA8/PA9          */
 #define ENC_CH2     2u  /* TIM2  PA15/PB3 */
-#define ENC_CH3     3u  /* TIM3  PB4/PB5（2026-09-28 由 PA6/PA7 迁入） */
+#define ENC_CH3     3u  /* TIM3  PA6/PA7（2026-10-15 测试期由 PB4/PB5 迁回，实车 PB4/PB5 不变） */
 #define ENC_CH4     4u  /* TIM8  PC6/PC7          */
 
 /**

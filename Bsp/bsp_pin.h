@@ -33,14 +33,22 @@ typedef struct
 #define PIN_LED2_GPIO_PIN       LED2_Pin
 #define PIN_LED2                ((GpioPin_t){ PIN_LED2_GPIO_PORT, PIN_LED2_GPIO_PIN })
 
-/* 蜂鸣器：无源件（2026-10-10 起 TIM14 CH1/PA7 方波驱动，见下方 PWM 组的
- * PIN_PWM14_*；响=50% duty / 停=0，音调频率由 TIM14 PSC/ARR 的 .ioc 时基定）。
- * 原方案 PC4 GPIO 高电平直驱仅适用于有源件，PIN_ALARM 宏随 CubeMX 重配删除 */
+/* 蜂鸣器：无源件，响=50% duty / 停=0 方波激励，音调频率由 PSC/ARR 的 .ioc
+ * 时基定（组宏见下方 PWM 段）。2026-10-10 起 TIM14 CH1/PA7；2026-10-15
+ * 测试期临时改挂 TIM11 CH1/PB9（PA7 让位 TIM3 编码器），实车配置不变、
+ * 测完回迁。原方案 PC4 GPIO 高电平直驱仅适用于有源件，PIN_ALARM 宏随
+ * CubeMX 重配删除 */
 
-/* 功率级待机控制（PA10，TB6612 STBY；CubeMX 复位电平 = 低 = 关断） */
+/* 功率级待机控制：两块 TB6612 各自一只 STBY，必须同开同关——只开一片的话
+ * 另一片上的电机怎么给占空比都无力矩。STBY=PA10（TB6612#1）；
+ * 2026-10-15 新增 STBY2=PE2（TB6612#2，测试期临时引脚）。
+ * 两脚 CubeMX 复位电平 = 低 = 关断 */
 #define PIN_PWR_STBY_GPIO_PORT  STBY_GPIO_Port
 #define PIN_PWR_STBY_GPIO_PIN   STBY_Pin
 #define PIN_PWR_STBY            ((GpioPin_t){ PIN_PWR_STBY_GPIO_PORT, PIN_PWR_STBY_GPIO_PIN })
+#define PIN_PWR_STBY2_GPIO_PORT STBY2_GPIO_Port
+#define PIN_PWR_STBY2_GPIO_PIN  STBY2_Pin
+#define PIN_PWR_STBY2           ((GpioPin_t){ PIN_PWR_STBY2_GPIO_PORT, PIN_PWR_STBY2_GPIO_PIN })
 
 /* 方向 GPIO ×8（PB0/PB1/PC4/PC5/PC0/PC1/PD3/PD4）
  * 每 2 个一组：xA=xIN1, xB=xIN2；组序号与电机序号的对应关系
@@ -108,10 +116,10 @@ typedef struct
  * ⚠ ARR 为 CubeMX 对账值：改 .ioc 时基必须同步本文件（S5 教训：
  * 不同步则 SetPulseUs/SetDuty 换算出数量级偏差） */
 #define PIN_PWM20K_TIM          TIM4
-#define PIN_PWM20K_CH1          TIM_CHANNEL_1   /* PB6 */
-#define PIN_PWM20K_CH2          TIM_CHANNEL_2   /* PB7 */
-#define PIN_PWM20K_CH3          TIM_CHANNEL_3   /* PB8 */
-#define PIN_PWM20K_CH4          TIM_CHANNEL_4   /* PB9 */
+#define PIN_PWM20K_CH1          TIM_CHANNEL_1   /* PD12（2026-10-15 测试期迁入，实车 PB6） */
+#define PIN_PWM20K_CH2          TIM_CHANNEL_2   /* PD13（2026-10-15 测试期迁入，实车 PB7） */
+#define PIN_PWM20K_CH3          TIM_CHANNEL_3   /* PD14（2026-10-15 测试期迁入，实车 PB8） */
+#define PIN_PWM20K_CH4          TIM_CHANNEL_4   /* PD15（2026-10-15 测试期迁入让位蜂鸣器，实车 PB9） */
 #define PIN_PWM20K_ARR          4199u
 
 /* 250Hz PWM 组（TIM9 CH1-2，APB2 定时器 168MHz，PSC=335 ARR=1999；
@@ -135,14 +143,16 @@ typedef struct
                                              * 2026-10-02 步距 20µs→2µs（舵机指令
                                              * 分辨率 1.8°→0.18°/步） */
 
-/* 蜂鸣器方波组（TIM14 CH1，PA7，APB1 定时器 84MHz；用途：无源蜂鸣器激励，
- * 只用占空比 50%/0% 控制响停，脉宽接口对它无意义）。2026-10-10 新增：
- * ARR 为 CubeMX 默认 65535（PSC=0 → 84M/65536≈1282Hz）——无源蜂鸣器典型
- * 谐振 2.7~4kHz，嫌音调低在 .ioc 改 TIM14 时基并同步本值。
+/* 蜂鸣器方波组（用途：无源蜂鸣器激励，只用占空比 50%/0% 控制响停，
+ * 脉宽接口对它无意义）。2026-10-10 新增时挂 TIM14 CH1/PA7（APB1 定时器
+ * 84MHz，ARR=65535 → 84M/65536≈1282Hz）；2026-10-15 测试期临时改挂
+ * TIM11 CH1/PB9——TIM11 在 APB2、168MHz，PSC=0 ARR=65535 →
+ * 168M/65536≈2564Hz，音调比原来高约一倍属预期。实车仍是 TIM14/PA7，
+ * 测完回迁（无源蜂鸣器典型谐振 2.7~4kHz，定版时可在 .ioc 改时基逼近）。
  * ⚠ ARR 为 CubeMX 对账值：改 .ioc 时基必须同步本文件（S5 教训） */
-#define PIN_PWM14_TIM           TIM14
-#define PIN_PWM14_CH1           TIM_CHANNEL_1   /* PA7（原 DIR2B 脚，DIR2 迁 PC4/PC5） */
-#define PIN_PWM14_ARR           65535u
+#define PIN_PWM11_TIM           TIM11
+#define PIN_PWM11_CH1           TIM_CHANNEL_1   /* PB9（原 TIM4 CH4 脚，TIM4 迁 PD12~15） */
+#define PIN_PWM11_ARR           65535u
 
 /* ================================ 编码器输入 =============================== */
 
@@ -150,7 +160,7 @@ typedef struct
  * （F4 无 AFIO 重映射机制：PA15/PB3/PB4 直接配 AF，无 F1 的 SWJ_CFG 陷阱） */
 #define PIN_ENC1_TIM            TIM1    /* PA8/PA9  */
 #define PIN_ENC2_TIM            TIM2    /* PA15/PB3 */
-#define PIN_ENC3_TIM            TIM3    /* PB4/PB5（2026-09-28 由 PA6/PA7 迁入，随迁移等位保留） */
+#define PIN_ENC3_TIM            TIM3    /* PA6/PA7（2026-10-15 测试期由 PB4/PB5 迁回，实车 PB4/PB5 不变） */
 #define PIN_ENC4_TIM            TIM8    /* PC6/PC7  */
 
 /* 编码器输入引脚对象宏（Gpio_Read 读原始电平，诊断信号通断用） */
@@ -162,10 +172,10 @@ typedef struct
 #define PIN_ENC2A_GPIO_PIN      GPIO_PIN_15
 #define PIN_ENC2B_GPIO_PORT     GPIOB
 #define PIN_ENC2B_GPIO_PIN      GPIO_PIN_3
-#define PIN_ENC3A_GPIO_PORT     GPIOB
-#define PIN_ENC3A_GPIO_PIN      GPIO_PIN_4
-#define PIN_ENC3B_GPIO_PORT     GPIOB
-#define PIN_ENC3B_GPIO_PIN      GPIO_PIN_5
+#define PIN_ENC3A_GPIO_PORT     GPIOA
+#define PIN_ENC3A_GPIO_PIN      GPIO_PIN_6
+#define PIN_ENC3B_GPIO_PORT     GPIOA
+#define PIN_ENC3B_GPIO_PIN      GPIO_PIN_7
 #define PIN_ENC4A_GPIO_PORT     GPIOC
 #define PIN_ENC4A_GPIO_PIN      GPIO_PIN_6
 #define PIN_ENC4B_GPIO_PORT     GPIOC

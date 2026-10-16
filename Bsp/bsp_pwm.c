@@ -7,9 +7,9 @@
 #include "tim.h"
 
 /* HAL 句柄表，组 0 = TIM4 20kHz、组 1 = TIM9 250Hz、组 2 = TIM5 50Hz、
- * 组 3 = TIM14 蜂鸣器方波（extern 自 tim.h）。⚠ S0 教训：TIM4/TIM9/TIM5/
- * TIM14 实例宏是寄存器块指针，严禁当句柄用；这里一律 &htimx。 */
-static TIM_HandleTypeDef *const s_grp_tim[4] = { &htim4, &htim9, &htim5, &htim14 };
+ * 组 3 = TIM11 蜂鸣器方波（extern 自 tim.h）。⚠ S0 教训：TIM4/TIM9/TIM5/
+ * TIM11 实例宏是寄存器块指针，严禁当句柄用；这里一律 &htimx。 */
+static TIM_HandleTypeDef *const s_grp_tim[4] = { &htim4, &htim9, &htim5, &htim11 };
 
 /* ch 1..10 → 通道 LL 宏（前 4 项属组 0，中 2 项属组 1，后 3 项属组 2，
  * 末 1 项属组 3） */
@@ -30,7 +30,7 @@ static const uint32_t s_ch_full[10] = {
     PIN_PWM20K_ARR + 1u, PIN_PWM20K_ARR + 1u, PIN_PWM20K_ARR + 1u, PIN_PWM20K_ARR + 1u,
     PIN_PWM250HZ_ARR + 1u, PIN_PWM250HZ_ARR + 1u,
     PIN_PWM50HZ_ARR + 1u, PIN_PWM50HZ_ARR + 1u, PIN_PWM50HZ_ARR + 1u,
-    PIN_PWM14_ARR + 1u,
+    PIN_PWM11_ARR + 1u,
 };
 
 /* 脉宽换算步距（µs/步）：250Hz 组与 50Hz 组当前同为 2µs，仍分表记账——
@@ -44,7 +44,7 @@ static const uint8_t s_grp_us_per_step[4] = {
 
 void Pwm_InitAll(void)
 {
-    for (uint32_t ch = PWM_20K_CH1; ch <= PWM_TIM14_CH1; ch++)
+    for (uint32_t ch = PWM_20K_CH1; ch <= PWM_TIM11_CH1; ch++)
     {
         (void)HAL_TIM_PWM_Start(s_grp_tim[s_ch_grp[ch - 1u]], s_ch_ll[ch - 1u]);
     }
@@ -52,7 +52,7 @@ void Pwm_InitAll(void)
 
 void Pwm_SetDuty(uint8_t ch, float duty)
 {
-    if (ch < PWM_20K_CH1 || ch > PWM_TIM14_CH1)
+    if (ch < PWM_20K_CH1 || ch > PWM_TIM11_CH1)
     {
         return;
     }
@@ -90,7 +90,7 @@ void Pwm_SetPulseUs(uint8_t ch, uint32_t us)
 
 void Pwm_Release(uint8_t ch)
 {
-    if (ch < PWM_20K_CH1 || ch > PWM_TIM14_CH1)
+    if (ch < PWM_20K_CH1 || ch > PWM_TIM11_CH1)
     {
         return;
     }

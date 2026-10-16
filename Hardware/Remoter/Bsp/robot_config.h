@@ -65,20 +65,48 @@
 
 /* ================================ Input（遥控器输入） ===================== */
 
+/* 输入源选择（编译期二选一，不做运行时仲裁——循 ROBOT_DIAG_ROLE_SWAP 先例，
+ * "当前输入是谁"在编译后必须只有一种答案）：
+ *   1 = WEB ：网页遥控台经 USART1 喂 RcInput_Raw_t 快照（输入硬件空窗期的
+ *             出厂值）。网页帧看门狗 ROBOT_WEB_WATCHDOG_MS 超时 → 停发 RF，
+ *             车端看门狗接管走已验的渐停+断链声光路径；
+ *   0 = PHYS：板载 12 路方向刀 + 摇杆 ADC（真件焊上后切回，remoter_app 的
+ *             物理采集分支恢复生效，web_input 模块被 --gc-sections 回收） */
+#define ROBOT_RMT_INPUT_WEB         1
+/* 网页帧新鲜窗长（ms）：网页 20Hz 心跳（50ms/帧）留 10 帧余量；
+ * 超窗 = 浏览器崩了/关标签页/拔线，停发 RF 让车端接管 */
+#define ROBOT_WEB_WATCHDOG_MS       500u
+
 /* 发送周期（ms）：100Hz 与 W1/W2.2 联调基准一致 */
 #define ROBOT_SEND_PERIOD_MS        10
 /* 信号灯心跳半周期（ms）：LED2 每 500ms 翻转 = 1Hz 心跳 */
 #define ROBOT_HEARTBEAT_MS          500
 
-/* 摇杆标定（原始值 0..4095）—— 中点/死区待真件实测后回写：
+/* 摇杆标定（原始值 0..4095，**仅 PHYS 物理电位器路径**；WEB 源直传逻辑量不过此）：
  * 中点=摇杆松手时的 raw 读数，死区=松手抖动包络再留余量 */
 #define ROBOT_JOY_CENTER_COUNTS     2048u   /* 待硬件实测 */
 #define ROBOT_JOY_DEADBAND_COUNTS   120u    /* 待硬件实测 */
-/* 摇杆按压键（K_SW/PA0）暂不消费——语义待拍板（候选：omega 临时轴/慢速模式） */
+/* 摇杆按压键（K_SW/PA0）暂不消费——语义待拍板（候选：慢速模式） */
 
-/* 船型开关键→帧字段映射的速率值：按住=该关节 +满速率（正向点动）。
- * ⚠ 方向语义待用户拍板：当前只有"按住正向"，反向候选方案=
- * ①加第二排键 ②"拨上=去端点/拨下=回中" ③短按步进。定案前先发 +rate */
+/* 船型开关（自复位、中位双断）→ 帧字段：K_n 的 A/B 刀 = joint[n-1] 正/反向，
+ * 幅度 = ROBOT_KEY_JOINT_RATE；同开关 A/B 同 1 按矛盾输入归零（失安全）。
+ * K_6（bit10/11）= 整车旋转 omega（2026-10-16 拍板）：A=+/B=−，
+ * 幅度 = ROBOT_KEY_OMEGA_RATE。
+ * ⚠ 物理分组与舵机 ID 的错位（K_3 在爪子区=舵机4、K_5 在手腕区=舵机3）
+ * 与 A/B 互斥假设均待上手核对，改 remoter_app.c 的 s_switch_pins 表即可 */
 #define ROBOT_KEY_JOINT_RATE        ROBOT_CMD_JOINT_RANGE
+/* 整车旋转速率（±ROBOT_CMD_RANGE=±1000）：开关是二值输入，与关节开关同
+ * 哲学=满速率 1000。半量程 500 会被车端手感整形（死区 0.46+平方曲线）
+ * 压到 ~0.5% 满幅=肉眼不可见的爬行（2026-10-16 实车实证）；嫌快往下调 */
+#define ROBOT_KEY_OMEGA_RATE        1000
+
+/* ---- 双击识别（flags 事件位，两端契约见 rc_input.h）----
+ * 窗长按自复位开关的"拨上-回中-再拨"手感估的，待实测调；保持拍数 =
+ * HOLD_MS ÷ 发送周期（100ms=10 帧），抗单帧丢失；车端按 0→1 沿切模式。
+ * 绑定表在 remoter_app.c（默认空表=功能休眠），绑定行示例：
+ *   { RCINPUT_KEY_K1_A, 1 }  → K_1A 双击 → flags bit1（如 快/慢 切换）
+ *   { RCINPUT_KEY_K5_A, 2 }  → K_5A 双击 → flags bit2（如 关节/坐标 切换） */
+#define ROBOT_DCLICK_WINDOW_MS      600u    /* 待手感标定 */
+#define ROBOT_DCLICK_HOLD_MS        100u
 
 #endif /* REMOTER_ROBOT_CONFIG_H */

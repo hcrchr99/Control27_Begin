@@ -51,12 +51,20 @@ typedef struct
 #define PIN_WL_IRQ_EXTI_IRQn    EXTI15_10_IRQn
 #define PIN_WL_IRQ              ((GpioPin_t){ PIN_WL_IRQ_GPIO_PORT, PIN_WL_IRQ_GPIO_PIN })
 
-/* 船型开关 A 刀（按下读 0）；B 刀与 A 同开合同动作，固件不读 */
-#define PIN_KEY_1               ((GpioPin_t){ K_1A_GPIO_Port, K_1A_Pin })   /* 大臂 */
-#define PIN_KEY_2               ((GpioPin_t){ K_2A_GPIO_Port, K_2A_Pin })   /* 小臂 */
-#define PIN_KEY_3               ((GpioPin_t){ K_3A_GPIO_Port, K_3A_Pin })   /* 爪子 */
-#define PIN_KEY_4               ((GpioPin_t){ K_4A_GPIO_Port, K_4A_Pin })   /* 爪旋转(待核对) */
-#define PIN_KEY_5               ((GpioPin_t){ K_5A_GPIO_Port, K_5A_Pin })   /* 手腕 */
+/* 自复位船型开关（中位双断：拨上=A 刀通、拨下=B 刀通、松手全断；按下读 0）。
+ * A/B = 同一开关的两个方向刀，⚠ 电气假设 A/B 互斥待上手实测（见 rc_input.h） */
+#define PIN_KEY_1A              ((GpioPin_t){ K_1A_GPIO_Port, K_1A_Pin })   /* 大臂+ */
+#define PIN_KEY_1B              ((GpioPin_t){ K_1B_GPIO_Port, K_1B_Pin })   /* 大臂- */
+#define PIN_KEY_2A              ((GpioPin_t){ K_2A_GPIO_Port, K_2A_Pin })   /* 小臂+ */
+#define PIN_KEY_2B              ((GpioPin_t){ K_2B_GPIO_Port, K_2B_Pin })   /* 小臂- */
+#define PIN_KEY_3A              ((GpioPin_t){ K_3A_GPIO_Port, K_3A_Pin })   /* 爪子+ */
+#define PIN_KEY_3B              ((GpioPin_t){ K_3B_GPIO_Port, K_3B_Pin })   /* 爪子- */
+#define PIN_KEY_4A              ((GpioPin_t){ K_4A_GPIO_Port, K_4A_Pin })   /* 爪旋转+(待核对) */
+#define PIN_KEY_4B              ((GpioPin_t){ K_4B_GPIO_Port, K_4B_Pin })   /* 爪旋转-(待核对) */
+#define PIN_KEY_5A              ((GpioPin_t){ K_5A_GPIO_Port, K_5A_Pin })   /* 手腕+ */
+#define PIN_KEY_5B              ((GpioPin_t){ K_5B_GPIO_Port, K_5B_Pin })   /* 手腕- */
+#define PIN_KEY_6A              ((GpioPin_t){ K_6A_GPIO_Port, K_6A_Pin })   /* 旋转+ */
+#define PIN_KEY_6B              ((GpioPin_t){ K_6B_GPIO_Port, K_6B_Pin })   /* 旋转- */
 #define PIN_KEY_EB              ((GpioPin_t){ K_EB_GPIO_Port, K_EB_Pin })   /* 急停(轻触) */
 #define PIN_KEY_SW              ((GpioPin_t){ K_SW_GPIO_Port, K_SW_Pin })   /* 摇杆按压(预留) */
 

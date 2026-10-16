@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebPilot — 网页遥控台</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>WebPilot <span class="sub">网页遥控台 · RM_Begin Remoter</span></h1>
+  </div>
+  <div class="lights">
+    <span class="light" id="light-serial" title="串口已打开"><i></i>串口</span>
+    <span class="light" id="light-web" title="板上 w=u/d：网页链路活/断流"><i></i>网页链路</span>
+    <span class="light" id="light-rf" title="板上 RF 发包中"><i></i>RF 发送</span>
+  </div>
+  <div class="conn">
+    <button id="btn-connect" class="btn primary">连接串口</button>
+    <button id="btn-disconnect" class="btn" disabled>断开</button>
+    <span id="conn-info" class="muted">未连接（Chrome/Edge，115200）</span>
+  </div>
+</header>
+
+<div id="banner" class="banner hidden"></div>
+
+<main>
+  <!-- 左列：摇杆 + 急停 -->
+  <section class="panel" id="panel-joy">
+    <h2>底盘摇杆</h2>
+    <div id="joy-pad" tabindex="0">
+      <div id="joy-thumb"></div>
+      <div class="joy-axis" id="joy-cross-h"></div>
+      <div class="joy-axis" id="joy-cross-v"></div>
+    </div>
+    <div class="kv-row">
+      <span>vx=<b id="val-vx">0</b></span>
+      <span>vy=<b id="val-vy">0</b></span>
+    </div>
+    <div class="kv-row muted">
+      <span>W/S=前进/后退</span><span>A/D=左移/右移</span>
+    </div>
+
+    <h2 class="estop-title">急停</h2>
+    <button id="btn-estop" class="estop">急停<br><small>点击闩锁 / 再点解除（空格）</small></button>
+    <p class="muted small">闩锁后每帧持续 estop=1，车端指令归零并闩住；解除经 estop=0 帧恢复。</p>
+  </section>
+
+  <!-- 中列：6 只三态自复位船型开关 -->
+  <section class="panel" id="panel-sw">
+    <h2>三态船型开关 <span class="muted small">按住上=+ / 下=−，松手回中</span></h2>
+    <div id="switches"><!-- JS 生成 6 列 --></div>
+    <div class="kv-row muted small">
+      <span>键盘：1~5=K1~K5 正向，6~0=K1~K5 反向，Q/E=整车旋转</span>
+    </div>
+    <h2>帧监视</h2>
+    <div class="kv-row"><span>wseq=<b id="val-wseq">–</b></span>
+      <span>keys=<b id="val-keys">0x0000</b></span>
+      <span>estop=<b id="val-estop">0</b></span></div>
+    <div class="kv-row muted small"><span>末帧=<b id="val-lastframe">–</b></span>
+      <span>已发=<b id="val-sent">0</b></span></div>
+    <p class="muted small">本帧=原始输入镜像（K_6 在 keys bit10/11），不含 omega——
+      omega 由板端从 keys 折算后打进发往车的 RF 帧；板端解码值看右侧遥测
+      "o(板端旋转)"（需重烧带 o= 字段的新固件）。</p>
+  </section>
+
+  <!-- 右列：板端遥测 + 日志 -->
+  <section class="panel" id="panel-tlm">
+    <h2>板端遥测 <span class="muted small">[RMT] 1Hz 统计行</span></h2>
+    <div class="tlm-grid">
+      <span>tx</span><b id="tlm-tx">–</b>
+      <span>fail</span><b id="tlm-fail">–</b>
+      <span>seq</span><b id="tlm-seq">–</b>
+      <span>v(板端归一)</span><b id="tlm-v">–</b>
+      <span>o(板端旋转)</span><b id="tlm-o">–</b>
+      <span>k(板端位图)</span><b id="tlm-k">–</b>
+      <span>e</span><b id="tlm-e">–</b>
+      <span>ok / err / dr</span><b id="tlm-ctr">–</b>
+      <span>行龄</span><b id="tlm-age">–</b>
+    </div>
+    <h2>串口日志</h2>
+    <div id="log"></div>
+    <p class="muted small">注意：切到后台标签页会被浏览器节流，心跳掉线 → 板看门狗停发 RF → 车自动渐停（特性非故障）。操作时保持本页前台。</p>
+  </section>
+</main>
+
+<!-- 经典脚本（非 module）：file:// 双击直开可用——ES module 走 CORS 加载，
+     file:// 的 opaque origin 会被 Chromium 拦成"整页 JS 不加载=所有点击无反应" -->
+<script src="main.js" defer></script>
+<script>
+  /* 自诊断：main.js 没加载成功时给可见提示，不再"全页静默无反应" */
+  addEventListener("load", function () {
+    if (!window.WebPilotDebug) {
+      var b = document.getElementById("banner");
+      b.textContent = "main.js 加载失败：请确认 main.js 与 index.html 在同一目录；" +
+        "仍不行就用 python -m http.server 启动后访问 http://127.0.0.1:8000/。";
+      b.classList.remove("hidden");
+    }
+  });
+</script>
+</body>
+</html>

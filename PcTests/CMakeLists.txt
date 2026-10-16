@@ -29,6 +29,7 @@ add_executable(pc_tests
     "${USERAPP_DIR}/chassis_ctrl.c"
     "${USERAPP_DIR}/grab_ctrl.c"
     "${REMOTER_APP_DIR}/rc_input.c"
+    "${REMOTER_APP_DIR}/web_input.c"
     "${MODULES_DIR}/actuator.c"
     "freertos_stub/freertos_stub.c"
     "bsp_sys_stub.c"
@@ -41,6 +42,7 @@ add_executable(pc_tests
     "test_grab_ctrl.c"
     "test_actuator.c"
     "test_rc_input.c"
+    "test_web_input.c"
     "main.c"
 )
 

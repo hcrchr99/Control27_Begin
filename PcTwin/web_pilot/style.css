@@ -1,0 +1,137 @@
+/* WebPilot 网页遥控台样式——深色工装风 */
+:root {
+  --bg: #14181d;
+  --panel: #1d232b;
+  --panel-edge: #2c3540;
+  --text: #d7dee6;
+  --muted: #7d8a96;
+  --accent: #3da5f4;
+  --ok: #43cf7c;
+  --warn: #f4b63d;
+  --bad: #f0503c;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.5 "Segoe UI", "Microsoft YaHei", sans-serif;
+  user-select: none;   /* 控件页禁文本选择：拖摇杆不再触发拖选（卡杆元凶） */
+}
+b { color: #fff; font-weight: 600; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.hidden { display: none !important; }
+
+/* ---- 顶栏 ---- */
+header {
+  display: flex; align-items: center; gap: 24px;
+  padding: 10px 18px; background: var(--panel);
+  border-bottom: 1px solid var(--panel-edge);
+}
+h1 { font-size: 18px; margin: 0; }
+h1 .sub { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 8px; }
+.lights { display: flex; gap: 14px; }
+.light { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+.light i {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #39424d; display: inline-block; transition: background .15s;
+}
+.light.on { color: var(--text); }
+.light.on i { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.light.on.bad { color: var(--text); }
+.light.on.bad i { background: var(--bad); box-shadow: 0 0 6px var(--bad); }
+.conn { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.btn {
+  background: #2b3542; color: var(--text); border: 1px solid #3c4956;
+  border-radius: 6px; padding: 7px 16px; font-size: 14px; cursor: pointer;
+}
+.btn:hover:not(:disabled) { background: #35414f; }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { background: #5cb5f6; }
+
+/* ---- 横幅 ---- */
+.banner {
+  margin: 10px 18px 0; padding: 10px 14px; border-radius: 6px;
+  background: #4a3421; border: 1px solid #7a5a2e; color: #ffd9a0;
+}
+
+/* ---- 主区 ---- */
+main {
+  display: grid; grid-template-columns: 300px 340px 1fr;
+  gap: 14px; padding: 14px 18px; align-items: start;
+}
+.panel {
+  background: var(--panel); border: 1px solid var(--panel-edge);
+  border-radius: 10px; padding: 14px;
+}
+h2 { font-size: 14px; margin: 4px 0 10px; padding-left: 9px; border-left: 3px solid var(--accent); }
+h2:not(:first-child) { margin-top: 18px; }
+.kv-row { display: flex; gap: 14px; margin: 6px 0; flex-wrap: wrap; }
+
+/* ---- 摇杆 ---- */
+#joy-pad {
+  position: relative; width: 240px; height: 240px; margin: 0 auto;
+  background: #161b21; border: 1px solid #333e4a; border-radius: 12px;
+  touch-action: none; cursor: crosshair; outline: none;
+}
+#joy-pad:focus { border-color: var(--accent); }
+.joy-axis { position: absolute; background: #232b34; }
+#joy-cross-h { left: 8px; right: 8px; top: 50%; height: 1px; }
+#joy-cross-v { top: 8px; bottom: 8px; left: 50%; width: 1px; }
+#joy-thumb {
+  position: absolute; width: 56px; height: 56px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #4a5a6b, #26303b);
+  border: 2px solid #3d4c5c; left: 50%; top: 50%;
+  transform: translate(-50%, -50%); pointer-events: none;
+  box-shadow: 0 3px 10px rgba(0,0,0,.5);
+}
+#joy-pad.active #joy-thumb { border-color: var(--accent); }
+
+/* ---- 急停 ---- */
+.estop {
+  width: 130px; height: 130px; border-radius: 50%;
+  background: radial-gradient(circle at 38% 32%, #ff6a55, #b32b1a 70%);
+  border: 6px solid #5e1710; color: #fff; font-size: 22px; font-weight: 700;
+  cursor: pointer; display: block; margin: 4px auto 8px;
+  box-shadow: 0 5px 14px rgba(0,0,0,.55), inset 0 -4px 8px rgba(0,0,0,.35);
+}
+.estop small { font-size: 11px; font-weight: 400; }
+.estop.latched {
+  background: radial-gradient(circle at 38% 32%, #ffb14d, #d9531e 70%);
+  border-color: #7a2d08;
+  animation: pulse 1s infinite;
+}
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 90, 60, .55); }
+  50% { box-shadow: 0 0 0 14px rgba(255, 90, 60, 0); }
+}
+
+/* ---- 三态船型开关 ---- */
+#switches { display: flex; gap: 10px; justify-content: space-between; }
+.sw { flex: 1; text-align: center; user-select: none; }
+.sw .zone {
+  display: block; padding: 9px 0; margin: 0 1px; border-radius: 6px;
+  background: #161b21; border: 1px solid #333e4a; cursor: pointer;
+  font-size: 15px; color: var(--muted); touch-action: none;
+}
+.sw .zone.up { margin-bottom: 3px; }
+.sw .zone.dn { margin-top: 3px; }
+.sw .zone.press-up { background: #1d4b2e; border-color: var(--ok); color: #fff; }
+.sw .zone.press-dn { background: #4b241d; border-color: var(--bad); color: #fff; }
+.sw .label { font-size: 12px; color: var(--text); padding: 3px 0; }
+.sw .tag { font-size: 10px; color: var(--muted); }
+
+/* ---- 遥测与日志 ---- */
+.tlm-grid {
+  display: grid; grid-template-columns: auto 1fr auto 1fr;
+  gap: 3px 12px; font-size: 13px;
+}
+.tlm-grid span { color: var(--muted); }
+#log {
+  height: 260px; overflow-y: auto; background: #101418;
+  border: 1px solid #2a333d; border-radius: 6px; padding: 8px 10px;
+  font: 12px/1.6 Consolas, monospace; white-space: pre-wrap; word-break: break-all;
+  user-select: text;   /* 日志例外：允许复制 */
+}
+#log .line-evt { color: var(--warn); }
+#log .line-rmt { color: #9ad1ff; }

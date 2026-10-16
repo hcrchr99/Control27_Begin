@@ -15,6 +15,8 @@ void TestRcCmd_Run(void);
 void TestChassisCtrl_Run(void);
 void TestGrabCtrl_Run(void);
 void TestActuator_Run(void);
+void TestRcInput_Run(void);
+void TestWebInput_Run(void);
 
 int main(void)
 {
@@ -26,6 +28,8 @@ int main(void)
     TestChassisCtrl_Run();
     TestGrabCtrl_Run();
     TestActuator_Run();
+    TestRcInput_Run();
+    TestWebInput_Run();
     printf("\n%d checks, %d failed\n", s_total, s_fail);
     return (s_fail == 0) ? 0 : 1;
 }

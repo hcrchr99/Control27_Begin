@@ -124,7 +124,7 @@ void MX_FREERTOS_Init(void) {
   App_Grab_TaskHandle = osThreadCreate(osThread(App_Grab_Task), NULL);
 
   /* definition and creation of App_Sense_Task */
-  osThreadDef(App_Sense_Task, StartApp_Sense_Task, osPriorityBelowNormal, 0, 256);
+  osThreadDef(App_Sense_Task, StartApp_Sense_Task, osPriorityBelowNormal, 0, 512);
   App_Sense_TaskHandle = osThreadCreate(osThread(App_Sense_Task), NULL);
 
   /* definition and creation of App_Daemon_Task */

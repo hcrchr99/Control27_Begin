@@ -124,15 +124,24 @@ function maybeSend() {
   if (dirty && now - lastSent >= 15) sendFrame();
 }
 
-/* 心跳：50ms 定时器；后台标签页被节流 → 心跳掉线 → 板看门狗停发（特性，见 PROTOCOL §4） */
-setInterval(() => { if (writer) sendFrame(); }, 50);
-/* 前台补拍：被节流后恢复前台时立即补一帧，缩短车端渐停时间 */
+/* 心跳：50ms 定时器。停发不能赌浏览器节流——开着 Web Serial 串口的页面，
+ * Chromium 不做后台定时器节流（2026-10-17 实测：切后台 20Hz 照跑，板端
+ * 500ms 看门狗永不超窗，车端链路断不掉）。显式停发在 visibilitychange 里做，
+ * 这里加 hidden 闸门做双保险 */
+setInterval(() => { if (writer && !document.hidden) sendFrame(); }, 50);
+/* 切后台 = 显式停发：收尾发一帧当前态再静默（急停位保持原值，不误放闩锁；
+ * 指令位清零）——板端 500ms 看门狗超窗停发 RF，车端走已验的渐停+断链声光链；
+ * 回前台补一帧立即恢复 */
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
     setBanner(null);
     if (writer) { dirty = true; maybeSend(); }
   } else {
-    setBanner("已切到后台：浏览器会节流定时器，心跳掉线后车端将自动渐停（特性非故障）。回到前台自动恢复。");
+    if (writer) {
+      const f = packFrame(input.wseq, 0, 0, 0, input.estop);
+      try { writer.write(f); input.wseq = (input.wseq + 1) & 0xFF; } catch (e) { /* 尽力而为 */ }
+    }
+    setBanner("已切到后台：心跳已停发，车端将自动渐停断链。回到前台自动恢复。");
   }
 });
 

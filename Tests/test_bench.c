@@ -12,6 +12,7 @@
 #include "bsp_sys.h"
 #include "bsp_log.h"
 #include "bsp_gpio.h"
+#include "alarm.h"
 
 /* 各测试项入口（Tests/test_xxx.c 提供） */
 typedef struct
@@ -80,7 +81,10 @@ void TestBench_Yield(const char *task_name)
     }
 }
 
-/* 心跳：LED1 1Hz 翻转（调度器与任务链路的存活证据，S0 惯例）+ 2s 日志心跳 */
+/* 心跳：LED1 1Hz 翻转（调度器与任务链路的存活证据，S0 惯例）+ 2s 日志心跳。
+ * LED1 单写者仲裁：非 OK 告警播放期间 LED1 归 alarm 音型（声光同相，alarm.h
+ * 接管契约），心跳停翻不抢——两套节奏叠加会把闪码打成乱闪；日志心跳照打
+ * （存活证据不依赖灯） */
 static void Heartbeat(uint32_t now_ms)
 {
     static uint32_t s_last_toggle;
@@ -90,8 +94,11 @@ static void Heartbeat(uint32_t now_ms)
     if ((now_ms - s_last_toggle) >= 500u)
     {
         s_last_toggle = now_ms;
-        s_led = !s_led;
-        (s_led ? Gpio_Set : Gpio_Reset)(PIN_LED1);
+        if (Alarm_Get() == ALARM_OK)
+        {
+            s_led = !s_led;
+            (s_led ? Gpio_Set : Gpio_Reset)(PIN_LED1);
+        }
     }
     if ((now_ms - s_last_log) >= 2000u)
     {

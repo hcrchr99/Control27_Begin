@@ -24,6 +24,8 @@
  *   TASK_OVERRUN     响100-停100 ×3-停1500（三短）       随音型闪
  *   ACT_STALL        响600-停200-响100-停100-响100-停2000（一长两短）
  *                                                        随音型闪
+ *   LINK_BACK        响100-停100-响100-停100-响300（两短一长提示音，
+ *                    播一遍自动静音）                     随音型闪
  */
 #ifndef ALARM_H
 #define ALARM_H
@@ -37,6 +39,7 @@ typedef enum
     ALARM_POWER_LOW,        /* 母线低压 */
     ALARM_TASK_OVERRUN,     /* 业务任务超期（daemon 心跳检查） */
     ALARM_ACT_STALL,        /* 关节堵转（actuator 电流判据坐实） */
+    ALARM_LINK_BACK,        /* 遥控复链提示音（once 型：播一遍自动回 OK） */
     /* 追加只增不改（§3.6 冻结纪律）；音型表（本头文件注释 + alarm.c
      * s_pat[]）与 Alarm_Set 越界上界三处同步补。ALARM_ACT_TIMEOUT 留给
      * W2.5 grab 抓取超时按需追加 */
@@ -57,7 +60,8 @@ AlarmCode_t Alarm_Get(void);
 /**
  * @brief  节奏发生器：按音型表驱动蜂鸣器 + LED1（非阻塞单次迭代）
  * @note   任务侧周期调用（daemon 100ms / 测试台 Poll 10ms 皆可）；
- *         码切换在下一个 Poll 拍生效并从相位 0 重放
+ *         码切换在下一个 Poll 拍生效并从相位 0 重放；once 型码（提示音）
+ *         播完一遍由 Poll 自动回 OK 静音，不占住告警通道
  */
 void Alarm_Poll(void);
 

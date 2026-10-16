@@ -108,6 +108,14 @@ static void CoastChannel(const MotorMap_t *m)
     Pwm_SetDuty(m->pwm_ch, 0.0f);
 }
 
+/* 两块 TB6612 的 STBY 同开同关：只拉起一片，另一片上的电机给再大占空比
+ * 也无力矩；只关一片则关不断电。开/关都两片一起动，不留半开关状态 */
+static void StbyAll(bool on)
+{
+    (on ? Gpio_Set : Gpio_Reset)(PIN_PWR_STBY);
+    (on ? Gpio_Set : Gpio_Reset)(PIN_PWR_STBY2);
+}
+
 bool Motor_Init(void)
 {
     Pwm_InitAll();                  /* 幂等：只 HAL_TIM_PWM_Start，保持上电 compare=0 */
@@ -115,7 +123,7 @@ bool Motor_Init(void)
     {
         CoastChannel(&s_map[i]);
     }
-    Gpio_Reset(PIN_PWR_STBY);       /* 保持关断（CubeMX 复位已低，此处幂等） */
+    StbyAll(false);                 /* 保持关断（CubeMX 复位已低，此处幂等） */
     SpeedLoopInit();                /* 速度环装参清态（须在 Bsp_Init 之后：PID 记时取 Bsp_GetUs） */
     return true;
 }
@@ -181,7 +189,7 @@ void Motor_GetTune(float *kp, float *ki, float *kd)
 
 void Motor_Enable(void)
 {
-    Gpio_Set(PIN_PWR_STBY);
+    StbyAll(true);
 }
 
 void Motor_Disable(void)
@@ -195,7 +203,7 @@ void Motor_Disable(void)
         s_speed_pid[i].ITerm = 0.0f;
         s_speed_pid[i].Output = 0.0f;
     }
-    Gpio_Reset(PIN_PWR_STBY);       /* 后写 STBY：先清 duty 后断电，次序即保险 */
+    StbyAll(false);                 /* 后写 STBY：先清 duty 后断电，次序即保险 */
 }
 
 void Motor_SetSpeedRpm(MotorCh_t ch, float rpm)
@@ -293,8 +301,20 @@ void Motor_SpeedLoopUpdate(void)
         {
             long ref10 = (long)(s_ref_rpm[i] * 10.0f);
             long spd10 = (long)(s_speed_rpm[i] * 10.0f);
-            Log_Printf("[MOTOR] CH%u 堵转闩置起 ref=%ld.%ld rpm 实测=%ld.%ld rpm\r\n",
-                       (unsigned)(i + 1u), ref10 / 10, ref10 % 10, spd10 / 10, spd10 % 10);
+            /* 符号与绝对值拆开印：负数直接 %ld.%ld 会把负分数带出来
+             * （"ref=-52.-4"，应为 "-52.4"） */
+            if (ref10 < 0)
+            {
+                ref10 = -ref10;
+            }
+            if (spd10 < 0)
+            {
+                spd10 = -spd10;
+            }
+            Log_Printf("[MOTOR] CH%u 堵转闩置起 ref=%c%ld.%ld rpm 实测=%c%ld.%ld rpm\r\n",
+                       (unsigned)(i + 1u),
+                       (s_ref_rpm[i] < 0.0f) ? '-' : '+', ref10 / 10, ref10 % 10,
+                       (s_speed_rpm[i] < 0.0f) ? '-' : '+', spd10 / 10, spd10 % 10);
             s_speed_pid[i].ERRORHandler.ERRORType = PID_ERROR_NONE;
             s_speed_pid[i].ERRORHandler.ERRORCount = 0u;
         }

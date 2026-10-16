@@ -4,8 +4,9 @@
  *
  * 实现：seq[] 交替存"响/停"时长（偶下标=响），Poll 里到点翻相位、每相位
  * 一次写齐蜂鸣器与 LED1——不依赖调用节拍，长时间不调也不追帧（下次调用
- * 从当前相位继续，最多慢一拍，告警场景可接受）。
- * 蜂鸣器为无源件：响=PWM_TIM14_CH1 50% duty（方波激励，音调由 TIM14 时基
+ * 从当前相位继续，最多慢一拍，告警场景可接受）。once 型码（提示音，如
+ * LINK_BACK）播完一遍由 Poll 自动回 OK——事件确认类声光，不占住告警通道。
+ * 蜂鸣器为无源件：响=PWM_TIM11_CH1 50% duty（方波激励，音调由 TIM11 时基
  * 定），停=duty 0（与 Pwm_Release 同效，compare=0 恒低静音）。
  */
 #include "alarm.h"
@@ -15,6 +16,7 @@
 
 /* 音型表（ms；与 alarm.h 注释表同步维护，追加码三处同步：枚举/本表/越界上界） */
 static const uint16_t SEQ_LINK_LOST[]    = { 200, 200, 200, 1400 };
+static const uint16_t SEQ_LINK_BACK[]    = { 100, 100, 100, 100, 300 };
 static const uint16_t SEQ_POWER_LOW[]    = { 800, 800 };
 static const uint16_t SEQ_TASK_OVERRUN[] = { 100, 100, 100, 100, 100, 1500 };
 static const uint16_t SEQ_ACT_STALL[]    = { 600, 200, 100, 100, 100, 2000 };
@@ -23,15 +25,17 @@ typedef struct
 {
     const uint16_t *seq;    /* 交替 响/停 时长，偶下标 = 响 */
     uint8_t         n;      /* seq 元素数 */
+    bool            once;   /* true = 播完一遍自动回 OK（提示音，不循环） */
 } AlarmPattern_t;
 
 /* 下标 = AlarmCode_t（[0]=OK 占位不用），越界判据取自本表长度 */
 static const AlarmPattern_t s_pat[] = {
-    { (const uint16_t *)0, 0u },                                    /* OK */
-    { SEQ_LINK_LOST,    4u },                                       /* LINK_LOST */
-    { SEQ_POWER_LOW,    2u },                                       /* POWER_LOW */
-    { SEQ_TASK_OVERRUN, 6u },                                       /* TASK_OVERRUN */
-    { SEQ_ACT_STALL,    6u },                                       /* ACT_STALL */
+    { (const uint16_t *)0, 0u, false },                             /* OK */
+    { SEQ_LINK_LOST,    4u, false },                                /* LINK_LOST */
+    { SEQ_POWER_LOW,    2u, false },                                /* POWER_LOW */
+    { SEQ_TASK_OVERRUN, 6u, false },                                /* TASK_OVERRUN */
+    { SEQ_ACT_STALL,    6u, false },                                /* ACT_STALL */
+    { SEQ_LINK_BACK,    5u, true  },                                /* LINK_BACK */
 };
 
 #define ALARM_CODE_MAX  ((AlarmCode_t)((sizeof(s_pat) / sizeof(s_pat[0])) - 1u))
@@ -57,16 +61,16 @@ AlarmCode_t Alarm_Get(void)
 
 /* 把一个相位落到声光输出口：偶相位=响+亮，奇相位=停+灭；
  * OK 码只静音、不碰 LED1（心跳域，见 alarm.h）。
- * 蜂鸣器无源件：响=50% duty 方波（TIM14 时基定音调），停=0 duty 静音 */
+ * 蜂鸣器无源件：响=50% duty 方波（TIM11 时基定音调），停=0 duty 静音 */
 static void Apply(AlarmCode_t code, uint8_t phase)
 {
     if (code == ALARM_OK)
     {
-        Pwm_SetDuty(PWM_TIM14_CH1, 0.0f);
+        Pwm_SetDuty(PWM_TIM11_CH1, 0.0f);
         return;
     }
     bool on = ((phase & 1u) == 0u);
-    Pwm_SetDuty(PWM_TIM14_CH1, on ? 0.5f : 0.0f);
+    Pwm_SetDuty(PWM_TIM11_CH1, on ? 0.5f : 0.0f);
     (on ? Gpio_Set : Gpio_Reset)(PIN_LED1);
 }
 
@@ -90,6 +94,14 @@ void Alarm_Poll(void)
     const AlarmPattern_t *p = &s_pat[s_played];
     if ((now - s_phase_t0) >= p->seq[s_phase])
     {
+        if (p->once && (uint8_t)(s_phase + 1u) >= p->n)
+        {
+            /* 提示音播完：自动回 OK（蜂鸣器静音、LED1 还给心跳），不循环 */
+            s_code = ALARM_OK;
+            s_played = ALARM_OK;
+            Apply(ALARM_OK, 0u);
+            return;
+        }
         s_phase = (uint8_t)((s_phase + 1u) % p->n);
         s_phase_t0 = now;
         Apply(s_played, s_phase);

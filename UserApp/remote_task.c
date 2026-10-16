@@ -10,7 +10,11 @@
  *
  * 并发契约（架构 §5.1）：本任务是 RC_Cmd 的唯一写者；消费者（chassis/grab）
  * 一律走 RC_Cmd_GetCopy 快照，禁止触碰本模块内部状态。
+ *
+ * 链路声光（W2.5 板验增补）：断开立 LINK_LOST（双短循环）、接通奏
+ * LINK_BACK（两短一长，播一遍自动静音）——兼作蜂鸣器链路自检。
  */
+#include "alarm.h"
 #include "cmsis_os.h"
 #include "bsp_log.h"
 #include "bsp_sys.h"
@@ -23,6 +27,10 @@ void StartApp_Remote_Task(void const * argument);
 
 /* 累计收帧数（1Hz 统计用；帧内容消费已移交 rc_cmd） */
 static uint32_t s_total;
+
+/* 链路状态沿检测（只为了在翻转那一下 Set 告警码）：初值 false，
+ * 开机首次收到帧即有一声"接通"确认音 */
+static bool s_link_up;
 
 void StartApp_Remote_Task(void const * argument)
 {
@@ -58,10 +66,21 @@ void StartApp_Remote_Task(void const * argument)
         }
 
         uint32_t now = Bsp_GetMs();
-        if (!Remote_IsLinkUp())
+        bool link_up = Remote_IsLinkUp();
+        if (!link_up)
         {
             /* 第二写者：看门狗超时，写失效值并驱动 300ms 渐停（防甩矿） */
             RC_Cmd_Update(NULL, now);
+        }
+
+        /* 链路声光沿：只在状态翻转那一下 Set（断开双短循环、接通两短一长）。
+         * 单码模型取舍：断链会顶掉正在播的 ACT_STALL（链路级优先），
+         * daemon 二期多码仲裁后再归边 */
+        if (link_up != s_link_up)
+        {
+            s_link_up = link_up;
+            Alarm_Set(link_up ? ALARM_LINK_BACK : ALARM_LINK_LOST);
+            Log_Printf("[RX-TASK] 链路%s\r\n", link_up ? "接通" : "断开");
         }
 
         if ((now - last_stat_ms) >= 1000u)
@@ -71,7 +90,7 @@ void StartApp_Remote_Task(void const * argument)
             RC_Cmd_GetCopy(&snap);
             Log_Printf("[RX-TASK] %upkts/s total=%u link=%d valid=%d estop=%d\r\n",
                        (unsigned)(s_total - s_last_count), (unsigned)s_total,
-                       (int)Remote_IsLinkUp(), (int)snap.valid, (int)snap.estop);
+                       (int)link_up, (int)snap.valid, (int)snap.estop);
             s_last_count = s_total;
             last_stat_ms = now;
         }

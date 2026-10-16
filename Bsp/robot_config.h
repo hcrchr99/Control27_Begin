@@ -24,7 +24,7 @@
  * GEAR = 减速比（测的是输出轴转速，减速比乘在计数里） */
 #define ROBOT_ENC_LINES             13
 #define ROBOT_ENC_QUAD              4
-#define ROBOT_MOTOR_GEAR            30.0
+#define ROBOT_MOTOR_GEAR            48.0
 /* 每输出轴转一圈的计数总数 = 线数 × 四倍频 × 减速比 */
 #define ROBOT_ENC_PPR               (ROBOT_ENC_LINES * ROBOT_ENC_QUAD * ROBOT_MOTOR_GEAR)
 /* 输出满占空比对应 -1000..+1000 的符号约定与轮向修正 —— 待整车联调 */
@@ -55,7 +55,7 @@
  * A相 625Hz 定案）。本值只是窗长下限：越大越平滑越钝，嫌钝可缩只改此宏 */
 #define ROBOT_MOTOR_SPEED_CALC_MS       20
 /* 设定转速钳位（rpm）—— 待按电机铭牌实测收边 */
-#define ROBOT_MOTOR_SPEED_MAX_RPM       300.0f
+#define ROBOT_MOTOR_SPEED_MAX_RPM       150.0f
 /* PID 参数（输出量纲 = duty -1..+1）—— 整定记录：
  *   2026-10-07 | Kp=0.02 Ki=0 | CH4 ref±30/60 | bang-bang 极限环：系统增益
  *   实测 ≈200rpm/duty（旧电源 20%→40rpm，50%→113rpm），Kp 过大使 duty 顶满
@@ -65,14 +65,17 @@
  *   解锁后复测：±30/±60 阶跃零稳态误差（60 稳 57.6~60.8），+60 首拍 ~17%
  *   超调 200ms 内落定、无振荡
  *   2026-10-09 | Kp=0.0058 Ki=0.09 Kd=0 | 换电源模块重标（增益≈305rpm/duty）+
- *   修测速窗×2/CYCCNT 回绕两坑后，单电机空载粗标（CH4，ref 110~150）；
+ *   修测速窗×2/CYCCNT 回绕两坑后，单电机空载粗标（CH4，ref 110~150）
+ *   2026-10-16 | Kp=0.014 Ki=0.06 Kd=0.00025 | GEAR 30→48 重标（= 2496
+ *   counts/输出圈）+ MAX_RPM 300→150 后，W2.5 板验：信号发生器全波形下
+ *   四路跟踪、稳态收敛（斜坡段滞后 ~15rpm 为 PI 跟斜坡固有，非失配）
  *   ⚠ 空载值，实车负载下须细调
- * ⚠ LINES/GEAR 已重标：13 线 ×4 ×减速比 30 = 1560 counts/输出圈 */
-#define ROBOT_MOTOR_SPEED_KP            0.0058f
-#define ROBOT_MOTOR_SPEED_KI            0.09f
-#define ROBOT_MOTOR_SPEED_KD            0.0f
+ * ⚠ LINES/GEAR 已重标：13 线 ×4 ×减速比 48 = 2496 counts/输出圈 */
+#define ROBOT_MOTOR_SPEED_KP            0.014f
+#define ROBOT_MOTOR_SPEED_KI            0.06f
+#define ROBOT_MOTOR_SPEED_KD            0.00025f
 /* 积分累计上限（duty 量纲）：抗启动冲击/堵转甩积分 */
-#define ROBOT_MOTOR_SPEED_INTEGRAL_LIMIT 0.65f
+#define ROBOT_MOTOR_SPEED_INTEGRAL_LIMIT 0.70f
 /* 微分低通时间常数（秒），Kd≠0 时生效 */
 #define ROBOT_MOTOR_SPEED_D_LPF_RC      0.01f
 /* 电机↔编码器通道映射（值 1..4 = bsp_encoder.h 的 ENC_CH1..4；同 PWM/DIR
@@ -114,8 +117,11 @@
  * 下列为实例默认参数，实例化时拷进 ActConfig_t 可逐实例覆盖。
  * ⚠ kinematics 坑#12 双重斜坡纪律：直线插补节拍是时间主人，ease_dps
  * 必须 > 插补峰值角速度（Kin_LineStart 校验违例拒绝） */
-/* 缓动限速（°/s）：角度指令突变时每秒至多挪这么多，规划 100~150 */
-#define ROBOT_ACT_EASE_DPS              120.0f
+/* 缓动限速（°/s）：角度指令突变时每秒至多挪这么多。须 > ROBOT_APP_JOINT_RATE_DPS
+ * （坑#12 双重斜坡纪律：速率积分器是时间主人，缓动若更慢，持续打杆时关节
+ * 越拉越滞后、实车速率对不上 180°/s 语义；2026-10-13 grab_task 接线时
+ * 120→250 对齐） */
+#define ROBOT_ACT_EASE_DPS              250.0f
 /* 堵转电流阈值（A）：仅注入了电流源的实例生效（ID1 大臂 / ID2 小臂，
  * 绑 Power_GetJointCurrent）——量程 0~3A 级，占位待实测
  * （与 ROBOT_POWER_JOINT_I_K 标定同窗进行，规格见 Modules 规划 §五） */
@@ -260,7 +266,8 @@
  * 8=POWER(S6) 9=OLED(S7)
  * 10=ACTUATOR(W2.4 缓动/堵转/热保护 + alarm 声光联验，串口命令 A/R/S/L)
  * 11=RC_CMD(W2.2) 13=TUNE(W2.3 速度环整定台，串口命令调参+1kHz 回传+启动
- * 自检；12 曾为 DWT 终审台已清理不用)。激活时业务任务自动让位。 */
-#define ROBOT_TEST_BENCH            10
+ * 自检；12 曾为 DWT 终审台已清理不用)。激活时业务任务自动让位。
+ * 2026-10-13 业务态出厂值归 0（W2.5 task 接线完成）；实机复标/联验时临时改回专项台 */
+#define ROBOT_TEST_BENCH            0
 
 #endif /* ROBOT_CONFIG_H */

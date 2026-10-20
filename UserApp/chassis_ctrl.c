@@ -32,22 +32,44 @@ void Chassis_Shape(const Chassis_Vec_t *in, Chassis_Vec_t *out)
 
     const float d = ROBOT_APP_CHASSIS_DEADBAND;
     const float axes[3] = { in->vx, in->vy, in->omega };
-    float shaped[3];
+    float t[3] = { 0.0f, 0.0f, 0.0f };  /* 死区重铺后的线性行程 0..1（符号不在这里；死区轴恒 0） */
+    float shaped[3] = { 0.0f, 0.0f, 0.0f };
+    int dom = -1;               /* 行程最大的轴（手感曲线的"主轴"） */
 
+    /* 第一遍：逐轴死区+重铺量程（t=(mag-d)/(1-d)，先不平方） */
     for (int i = 0; i < 3; i++)
     {
         float x = ClampSym_(axes[i], 1.0f);
         float mag = (x < 0.0f) ? -x : x;
 
-        if (mag <= d)
+        if (mag > d)
         {
-            shaped[i] = 0.0f;               /* 死区内：回中漂移全吃掉 */
+            t[i] = (mag - d) / (1.0f - d);
+            if ((dom < 0) || (t[i] > t[dom]))
+            {
+                dom = i;
+            }
         }
-        else
+    }
+
+    if (dom < 0)
+    {
+        out->vx = 0.0f;         /* 三轴全在死区：全零 */
+        out->vy = 0.0f;
+        out->omega = 0.0f;
+        return;
+    }
+
+    /* 第二遍：平方曲线只捏主轴（t_dom²），其余轴按主轴行程等比跟随（×t_dom）。
+     * 单轴时 dom 就是那根轴，输出=t²，与逐轴平方逐位一致；组合输入（如单杆
+     * 斜推=前进+回转）方向在整形后保持——交换率不再被"小值平方更小"放大，
+     * 修的正是"斜一点前进先塌、旋转还没起"的失配（2026-10-20 拍板） */
+    for (int i = 0; i < 3; i++)
+    {
+        if (t[i] > 0.0f)
         {
-            /* 死区外重铺满量程（x=1 仍映射 1），再平方：轻推细、推满猛 */
-            float t = (mag - d) / (1.0f - d);
-            shaped[i] = (x < 0.0f) ? -(t * t) : (t * t);
+            float mag = t[i] * t[dom];      /* i==dom 时恰为 t² */
+            shaped[i] = (axes[i] < 0.0f) ? -mag : mag;
         }
     }
 

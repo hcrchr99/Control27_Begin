@@ -39,6 +39,53 @@ void TestChassisCtrl_Run(void)
         CHECK_NEAR(out.vx, 1.0, 1e-6);
     }
 
+    /* ===== Shape 向量整形（2026-10-20）：组合输入方向保持 =====
+     * 平方只捏行程最大主轴，其余轴 ×t_dom 等比跟随；单轴用例上方已验逐位一致 */
+    {
+        Chassis_Vec_t in, out;
+        const double d = ROBOT_APP_CHASSIS_DEADBAND;
+        double tvx, two;
+
+        /* 斜推（前进主轴+回转随动）：vx=t_vx²、omega=t_ω·t_vx，方向比保持 */
+        in.vx = 0.94f; in.vy = 0.0f; in.omega = 0.342f;
+        Chassis_Shape(&in, &out);
+        tvx = (0.94 - d) / (1.0 - d);
+        two = (0.342 - d) / (1.0 - d);
+        CHECK_NEAR(out.vx, tvx * tvx, 1e-4);           /* 主轴=逐轴平方同款 */
+        CHECK_NEAR(out.omega, two * tvx, 1e-4);        /* 随动轴=t_ω·t_dom（非 t_ω²） */
+        CHECK(out.omega > 0.2);                        /* 交换率：斜推旋转起得来（旧逐轴平方≈0.05） */
+
+        /* 方向比在整形后保持（=死区重铺后的比） */
+        CHECK_NEAR((double)out.omega / (double)out.vx, two / tvx, 1e-4);
+
+        /* 符号独立：负随动轴不串号 */
+        in.vx = 0.94f; in.omega = -0.342f;
+        Chassis_Shape(&in, &out);
+        CHECK(out.vx > 0.0f && out.omega < 0.0f);
+        CHECK_NEAR(out.omega, -(two * tvx), 1e-4);
+
+        /* 主轴换人：回转行程最大时曲线捏 omega（满幅映射满幅），前进随主轴等比线性过 */
+        in.vx = 0.4f; in.omega = 1.0f;
+        Chassis_Shape(&in, &out);
+        tvx = (0.4 - d) / (1.0 - d);
+        CHECK_NEAR(out.omega, 1.0, 1e-6);
+        CHECK_NEAR(out.vx, tvx, 1e-4);
+
+        /* 双轴等幅：互为主轴，各得 t²（与逐轴平方同） */
+        in.vx = 0.5f; in.vy = 0.5f; in.omega = 0.0f;
+        Chassis_Shape(&in, &out);
+        two = (0.5 - d) / (1.0 - d);
+        CHECK_NEAR(out.vx, two * two, 1e-4);
+        CHECK_NEAR(out.vy, two * two, 1e-4);
+
+        /* 死区轴不复活：一轴出死区一轴在区内 */
+        in.vx = 0.94f; in.vy = 0.03f; in.omega = 0.0f;
+        Chassis_Shape(&in, &out);
+        CHECK_NEAR(out.vy, 0.0, 1e-6);
+        tvx = (0.94 - d) / (1.0 - d);
+        CHECK_NEAR(out.vx, tvx * tvx, 1e-4);
+    }
+
     /* ===== ToPhysical：满幅换算 ===== */
     {
         Chassis_Vec_t n, p;

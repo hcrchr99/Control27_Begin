@@ -3,14 +3,15 @@
  * @brief   遥控器主任务：采输入 → 建帧 → 100Hz 发包（发送链路与 PTX 测试板同款）
  *
  * 数据流（输入源二选一，robot_config.h ROBOT_RMT_INPUT_WEB 编译期切换）：
- *  WEB ：网页遥控台经 USART1 喂逻辑量快照（vx/vy ±1000 网页直传，20Hz 心跳
- *        +变化即发），网页帧看门狗超时 → 停发 RF——车端 400ms 看门狗接管走
+ *  WEB ：网页遥控台经 USART1 喂逻辑量快照（vx/vy/omega ±1000 网页直传，20Hz
+ *        心跳 +变化即发），网页帧看门狗超时 → 停发 RF——车端 400ms 看门狗接管走
  *        已验的渐停+断链声光路径，"输入设备掉线"不伪装成"链路活着"；
  *  PHYS：6 只自复位船型开关 ×2 方向刀（10ms 电平读，低有效，两拍一致消抖
  *        滤弹跳）+ 摇杆 ADC 对经 RcInput_NormalizeAxis 归一化 → RcInput_Raw_t。
- * 之后同路：RcInput_Build 纯函数建帧（轴钳位+K_6→omega+方向刀→joint）→
- * Remote_SendPacket（阻塞等 ACK/重传）。节奏：ROBOT_SEND_PERIOD_MS 周期，
- * 发包耗时从周期里扣除，超期只歇 1ms。
+ * 之后同路：RcInput_Build 纯函数建帧（轴钳位直通+方向刀→joint；omega 已在
+ * 采集侧备好——WEB=网页 omega 轴直传，PHYS=K_6 刀经 RcInput_FoldOmega 折算
+ * 定速率）→ Remote_SendPacket（阻塞等 ACK/重传）。节奏：ROBOT_SEND_PERIOD_MS
+ * 周期，发包耗时从周期里扣除，超期只歇 1ms。
  *
  * 板上观察点：
  *  - LED2（PB7，高亮）：1Hz 心跳；初始化失败改为"每秒三短闪"故障码；
@@ -173,6 +174,7 @@ void Remoter_Main(void const *argument)
 
         raw.keys = (uint16_t)(s_keys_db & RCINPUT_KEY_DIR_MASK);
         raw.estop = (uint8_t)((s_keys_db & RCINPUT_KEY_ESTOP_BIT) != 0u);
+        raw.omega = RcInput_FoldOmega(raw.keys, s_input_cfg.key_omega_rate);
         {
             /* 摇杆 ADC：原始值 → 轴逻辑量（设备清噪死区+归一化在此收口）；
              * ADC 异常按中点处理 = 轴指令归零（失安全），不阻塞发送链路 */
@@ -230,9 +232,10 @@ void Remoter_Main(void const *argument)
         if ((now - last_stat_ms) >= 1000u)
         {
 #if ROBOT_RMT_INPUT_WEB
-            /* w=u/d 网页链路态；o=板端解码出的 omega（K_6 旋转，配网页遥测
-             * 直接对账）；ok/err/dr=累计合法帧/CRC 错帧/帧外丢字节
-             * （err、dr 齐涨 = 网页侧没在发/波特率不对，只有 dr 涨 = 帧头错位） */
+            /* w=u/d 网页链路态；o=板端解码出的 omega（WEB=网页 omega 轴直传，
+             * 推杆应看到连续值；恒 0 = 旧固件，重烧）；ok/err/dr=累计合法帧/
+             * CRC 错帧/帧外丢字节（err、dr 齐涨 = 网页侧没在发/波特率不对，
+             * 只有 dr 涨 = 帧头错位/新旧版本帧长错配） */
             Log_Printf("[RMT] tx=%u fail=%u seq=%u v=(%d,%d) o=%d k=0x%04X e=%d "
                        "w=%c ok=%u err=%u dr=%u\r\n",
                        (unsigned)attempts,

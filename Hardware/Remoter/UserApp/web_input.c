@@ -62,8 +62,9 @@ static void Settle_(WebInput_State_t *st, uint32_t now_ms)
 {
     st->snap.vx = (int16_t)(uint16_t)(st->buf[2] | ((uint16_t)st->buf[3] << 8));
     st->snap.vy = (int16_t)(uint16_t)(st->buf[4] | ((uint16_t)st->buf[5] << 8));
-    st->snap.keys  = (uint16_t)(st->buf[6] | ((uint16_t)st->buf[7] << 8));
-    st->snap.estop = st->buf[8];
+    st->snap.omega = (int16_t)(uint16_t)(st->buf[6] | ((uint16_t)st->buf[7] << 8));
+    st->snap.keys  = (uint16_t)(st->buf[8] | ((uint16_t)st->buf[9] << 8));
+    st->snap.estop = st->buf[10];
     st->last_frame_ms = now_ms;
     st->frames_ok++;
     st->fill = 0u;
@@ -101,8 +102,8 @@ void WebInput_Feed(WebInput_State_t *st, const uint8_t *data, uint16_t len,
             continue;
         }
 
-        /* 攒满一帧：CRC 覆盖 [1..8]，[9] 是校验字节 */
-        if (WebInput_Crc8(&st->buf[1], 8u) == st->buf[9])
+        /* 攒满一帧：CRC 覆盖 [1..10]，[11] 是校验字节 */
+        if (WebInput_Crc8(&st->buf[1], 10u) == st->buf[11])
         {
             Settle_(st, now_ms);
         }

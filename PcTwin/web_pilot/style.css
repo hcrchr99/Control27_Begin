@@ -49,6 +49,10 @@ h1 .sub { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 8
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover { background: #5cb5f6; }
 
+/* 挡位按钮：回转挡换琥珀色提示（杆 X 已换语义） */
+#btn-mode { padding: 4px 12px; font-size: 13px; }
+#btn-mode.mode-rotate { border-color: var(--warn); color: var(--warn); }
+
 /* ---- 横幅 ---- */
 .banner {
   margin: 10px 18px 0; padding: 10px 14px; border-radius: 6px;

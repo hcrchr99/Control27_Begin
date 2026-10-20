@@ -8,14 +8,16 @@
  * 零改动。真件到位后 robot_config.h 切回 PHYS，本模块被 --gc-sections 回收。
  *
  * 线协议（两端契约，网页侧镜像实现见 PcTwin/web_pilot/PROTOCOL.md）：
- *   10 字节定长，小端：
- *   [0]     0x5A   帧头（重同步锚点）
- *   [1]     wseq   网页帧序号 u8（本模块不消费，留诊断）
- *   [2..3]  vx     i16  轴逻辑量 ±ROBOT_CMD_RANGE（网页直传，发送端钳位）
- *   [4..5]  vy     i16  同上
- *   [6..7]  keys   u16  方向刀位图（位布局见 rc_input.h 宏组）
- *   [8]     estop  u8   1=急停
- *   [9]     CRC8   覆盖 [1..8]：poly 0x07、初值 0x00、不反射、无异或输出
+ *   12 字节定长，小端（v2，2026-10-20：加 omega 轴；v1=10B 无 omega，两端
+ *   无版本握手，页面与板必须同批升级——错配时帧对不齐，看门狗安全停发）：
+ *   [0]      0x5A   帧头（重同步锚点）
+ *   [1]      wseq   网页帧序号 u8（本模块不消费，留诊断）
+ *   [2..3]   vx     i16  轴逻辑量 ±ROBOT_CMD_RANGE（网页直传，发送端钳位）
+ *   [4..5]   vy     i16  同上
+ *   [6..7]   omega  i16  整车旋转轴逻辑量（网页直传；keys 的 K_6 位网页不再使用）
+ *   [8..9]   keys   u16  方向刀位图（位布局见 rc_input.h 宏组）
+ *   [10]     estop  u8   1=急停
+ *   [11]     CRC8   覆盖 [1..10]：poly 0x07、初值 0x00、不反射、无异或输出
  *
  * 解析纪律：
  *  - 无应用层重传——UART 帧错了丢掉等下一拍（网页 20Hz 心跳，冗余足够），
@@ -37,7 +39,7 @@
 #include "rc_input.h"
 
 /* 帧长与帧头（网页侧逐字节镜像，改这里必须同步网页 PROTOCOL.md） */
-#define WEBINPUT_FRAME_LEN      10u
+#define WEBINPUT_FRAME_LEN      12u
 #define WEBINPUT_HEADER_BYTE    0x5Au
 
 /**

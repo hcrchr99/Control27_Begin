@@ -26,6 +26,7 @@ static RcInput_Raw_t ZeroRaw(void)
     RcInput_Raw_t r;
     r.vx = 0;
     r.vy = 0;
+    r.omega = 0;
     r.keys = 0u;
     r.estop = 0u;
     return r;
@@ -55,7 +56,7 @@ static void TestAxisScale(void)
 
 /* ---- RcInput_Build（消费逻辑量快照） ---- */
 
-/* 零输入：帧全零（含 omega 恒由 K_6 决定=零） */
+/* 零输入：帧全零（omega 由快照直通=零） */
 static void TestCenterZero(void)
 {
     RcInput_Config_t cfg = DefaultCfg();
@@ -87,6 +88,20 @@ static void TestBuildAxes(void)
     raw.vx = -32768;  raw.vy = 32767;   /* int16 极值也不得逸出 */
     RcInput_Build(&cfg, &raw, 0u, &f);
     CHECK(f.vx == -1000 && f.vy == 1000);
+
+    /* omega 同纪律：直通+钳位（WEB 线性轴/PHYS 折算都在采集侧备好） */
+    raw.vx = 0;  raw.vy = 0;
+    raw.omega = 311;
+    RcInput_Build(&cfg, &raw, 0u, &f);
+    CHECK(f.omega == 311);
+
+    raw.omega = -12345;
+    RcInput_Build(&cfg, &raw, 0u, &f);
+    CHECK(f.omega == -1000);
+
+    raw.omega = 32767;
+    RcInput_Build(&cfg, &raw, 0u, &f);
+    CHECK(f.omega == 1000);
 }
 
 /* 方向刀→关节映射：A 刀=+rate、B 刀=−rate；同开关 A/B 同 1=矛盾归零；
@@ -116,34 +131,30 @@ static void TestDirectionKeys(void)
     CHECK(f.joint[2] == -30);
 }
 
-/* K_6 → 整车旋转（2026-10-16 拍板）：A=+rate、B=−rate、矛盾=0、幅度可注入 */
+/* K_6 → 整车旋转折算（PHYS 采集侧，2026-10-16 拍板；2026-10-20 折算挪到
+ * 采集侧 RcInput_FoldOmega，Build 只钳位直通）：A=+rate、B=−rate、矛盾=0、
+ * 幅度可注入 */
 static void TestOmegaKeys(void)
 {
     RcInput_Config_t cfg = DefaultCfg();
+
+    CHECK(RcInput_FoldOmega(RCINPUT_KEY_K6_A, cfg.key_omega_rate) == 500);
+    CHECK(RcInput_FoldOmega(RCINPUT_KEY_K6_B, cfg.key_omega_rate) == -500);
+    CHECK(RcInput_FoldOmega(RCINPUT_KEY_K6_A | RCINPUT_KEY_K6_B,
+                            cfg.key_omega_rate) == 0);              /* 矛盾失安全 */
+    CHECK(RcInput_FoldOmega(0u, cfg.key_omega_rate) == 0);          /* 全断 */
+    CHECK(RcInput_FoldOmega(RCINPUT_KEY_K6_A | RCINPUT_KEY_K1_B,
+                            cfg.key_omega_rate) == 500);            /* 关节刀不相干 */
+    CHECK(RcInput_FoldOmega(RCINPUT_KEY_K6_B, 750) == -750);        /* 幅度可注入 */
+
+    /* 折算产物进 Build 快照后原样到达帧（K_6 不进关节不受影响） */
     RcInput_Raw_t raw = ZeroRaw();
     RCPayload_t f;
-
-    raw.keys = RCINPUT_KEY_K6_A;
+    raw.omega = 500;
+    raw.keys = RCINPUT_KEY_K6_A;        /* 位图照旧透传，omega 与位图解耦 */
     RcInput_Build(&cfg, &raw, 0u, &f);
     CHECK(f.omega == 500);
-    CHECK(f.joint[0] == 0 && f.joint[4] == 0);      /* K_6 不进关节 */
-
-    raw.keys = RCINPUT_KEY_K6_B;
-    RcInput_Build(&cfg, &raw, 0u, &f);
-    CHECK(f.omega == -500);
-
-    raw.keys = RCINPUT_KEY_K6_A | RCINPUT_KEY_K6_B; /* 矛盾失安全 */
-    RcInput_Build(&cfg, &raw, 0u, &f);
-    CHECK(f.omega == 0);
-
-    raw.keys = RCINPUT_KEY_K6_A | RCINPUT_KEY_K1_B; /* 与关节刀并行不互斥 */
-    RcInput_Build(&cfg, &raw, 0u, &f);
-    CHECK(f.omega == 500 && f.joint[0] == -100);
-
-    cfg.key_omega_rate = 750;                       /* 幅度随配置注入 */
-    raw.keys = RCINPUT_KEY_K6_B;
-    RcInput_Build(&cfg, &raw, 0u, &f);
-    CHECK(f.omega == -750);
+    CHECK(f.joint[0] == 0 && f.joint[4] == 0);
 }
 
 /* 急停：estop=1 → flags bit0=1（车端闩锁语义）；estop=0 → flags=0 */

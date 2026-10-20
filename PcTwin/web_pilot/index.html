@@ -13,6 +13,7 @@
   </div>
   <div class="lights">
     <span class="light" id="light-serial" title="串口已打开"><i></i>串口</span>
+    <span class="light" id="light-pad" title="蓝牙/USB 手柄已连接（Gamepad API）"><i></i>手柄</span>
     <span class="light" id="light-web" title="板上 w=u/d：网页链路活/断流"><i></i>网页链路</span>
     <span class="light" id="light-rf" title="板上 RF 发包中"><i></i>RF 发送</span>
   </div>
@@ -38,9 +39,20 @@
       <span>vx=<b id="val-vx">0</b></span>
       <span>vy=<b id="val-vy">0</b></span>
     </div>
+    <div class="kv-row">
+      <button id="btn-mode" class="btn" title="切换挡位（也可左杆下压 L3，杆回中才受理）">挡位：前进·左右</button>
+      <span class="muted small">挡位切「杆 X」的身份：平移 ↔ 线性回转（实机=单杆 SW 切挡）</span>
+    </div>
+    <div class="kv-row">
+      <span>vx=<b id="val-vx">0</b></span>
+      <span>vy=<b id="val-vy">0</b></span>
+      <span>ω=<b id="val-omega">0</b></span>
+    </div>
     <div class="kv-row muted">
       <span>W/S=前进/后退</span><span>A/D=左移/右移</span>
+      <span>手柄/屏摇杆 Y=前后，X 随挡位</span>
     </div>
+    <div class="kv-row muted small"><span id="pad-info">手柄：未连接（蓝牙配对后按任意手柄键唤醒）</span></div>
 
     <h2 class="estop-title">急停</h2>
     <button id="btn-estop" class="estop">急停<br><small>点击闩锁 / 再点解除（空格）</small></button>
@@ -52,7 +64,7 @@
     <h2>三态船型开关 <span class="muted small">按住上=+ / 下=−，松手回中</span></h2>
     <div id="switches"><!-- JS 生成 6 列 --></div>
     <div class="kv-row muted small">
-      <span>键盘：1~5=K1~K5 正向，6~0=K1~K5 反向，Q/E=整车旋转</span>
+      <span>键盘：1~5=K1~K5 正向，6~0=K1~K5 反向，Q/E=定速率旋转；右杆X/屏开关同 K_6（定速率）</span>
     </div>
     <h2>帧监视</h2>
     <div class="kv-row"><span>wseq=<b id="val-wseq">–</b></span>
@@ -60,9 +72,9 @@
       <span>estop=<b id="val-estop">0</b></span></div>
     <div class="kv-row muted small"><span>末帧=<b id="val-lastframe">–</b></span>
       <span>已发=<b id="val-sent">0</b></span></div>
-    <p class="muted small">本帧=原始输入镜像（K_6 在 keys bit10/11），不含 omega——
-      omega 由板端从 keys 折算后打进发往车的 RF 帧；板端解码值看右侧遥测
-      "o(板端旋转)"（需重烧带 o= 字段的新固件）。</p>
+    <p class="muted small">本帧 v2=原始输入镜像，含 omega 轴（线性回转直传）——keys 只携 K_1..K_5
+      （K_6 位归还 PHYS 物理开关）；板端解码值看右侧遥测 "o(板端旋转)"，推杆应见连续值
+      （恒 0 = 板上是旧固件，重烧）。</p>
   </section>
 
   <!-- 右列：板端遥测 + 日志 -->

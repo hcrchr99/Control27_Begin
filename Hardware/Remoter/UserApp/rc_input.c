@@ -64,6 +64,22 @@ uint16_t RcInput_Debounce(uint16_t debounced, uint16_t prev_raw, uint16_t raw_no
     return (uint16_t)((debounced & (uint16_t)~(settled | cleared)) | settled);
 }
 
+int16_t RcInput_FoldOmega(uint16_t keys, int16_t rate)
+{
+    uint16_t a = (uint16_t)(keys & RCINPUT_KEY_K6_A);
+    uint16_t b = (uint16_t)(keys & RCINPUT_KEY_K6_B);
+
+    if ((a != 0u) && (b == 0u))
+    {
+        return rate;
+    }
+    if ((b != 0u) && (a == 0u))
+    {
+        return (int16_t)-rate;
+    }
+    return 0;       /* 全断，或 A/B 同 1 矛盾（失安全归零） */
+}
+
 void RcInput_DclickReset(RcInput_DclickState_t *st)
 {
     if (st != NULL)
@@ -123,27 +139,15 @@ void RcInput_Build(const RcInput_Config_t *cfg, const RcInput_Raw_t *raw,
 
     memset(out, 0, sizeof *out);    /* 发送端纪律：整帧清零再填 */
 
-    /* 轴逻辑量直通+钳位（发送端纪律：rc_cmd.h v2 vx/vy 由发送端钳位）；
-     * PHYS 的去死区/归一化已在采集侧 RcInput_NormalizeAxis 完成，
-     * WEB 的逻辑量由网页直传，两条路在这里汇合后语义一致 */
+    /* 轴逻辑量直通+钳位（发送端纪律：rc_cmd.h v2 vx/vy/omega 由发送端钳位）；
+     * PHYS 的去死区/归一化/K_6 折算已在采集侧完成，WEB 的逻辑量由网页直传，
+     * 两条路在这里汇合后语义一致 */
     out->vx = (raw->vx > ROBOT_CMD_RANGE) ? ROBOT_CMD_RANGE
             : ((raw->vx < -ROBOT_CMD_RANGE) ? -ROBOT_CMD_RANGE : raw->vx);
     out->vy = (raw->vy > ROBOT_CMD_RANGE) ? ROBOT_CMD_RANGE
             : ((raw->vy < -ROBOT_CMD_RANGE) ? -ROBOT_CMD_RANGE : raw->vy);
-
-    /* K_6 → 整车旋转：A/B 刀同关节矛盾语义，失安全归零（2026-10-16 拍板） */
-    {
-        uint16_t a = (uint16_t)(raw->keys & RCINPUT_KEY_K6_A);
-        uint16_t b = (uint16_t)(raw->keys & RCINPUT_KEY_K6_B);
-        if ((a != 0u) && (b == 0u))
-        {
-            out->omega = cfg->key_omega_rate;
-        }
-        else if ((b != 0u) && (a == 0u))
-        {
-            out->omega = (int16_t)(-cfg->key_omega_rate);
-        }
-    }
+    out->omega = (raw->omega > ROBOT_CMD_RANGE) ? ROBOT_CMD_RANGE
+               : ((raw->omega < -ROBOT_CMD_RANGE) ? -ROBOT_CMD_RANGE : raw->omega);
 
     /* 方向刀解码：K_n 的 A/B 刀分别映射 joint[n-1] 正/反向（自复位中位=全 0）；
      * 同开关 A/B 同 1 = 矛盾输入（物理上不应出现），按失安全处理为 0 */

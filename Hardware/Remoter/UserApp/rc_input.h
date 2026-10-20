@@ -9,8 +9,10 @@
  * 帧字段语义（rc_cmd.h v2 冻结布局）：
  *   vx/vy      = 轴逻辑量 ±ROBOT_CMD_RANGE（采集侧已适配产出：PHYS=摇杆原始值经
  *                RcInput_NormalizeAxis 去死区归一化；WEB=网页直传逻辑量，Build 只钳位）
- *   omega      = K_6 方向刀：A → +key_omega_rate，B → −key_omega_rate（整车旋转，
- *                2026-10-16 拍板）；中位（全断）→ 0；A/B 同 1 矛盾 → 0（失安全）
+ *   omega      = 轴逻辑量 ±ROBOT_CMD_RANGE，Build 只钳位直通。来源归采集侧：
+ *                PHYS=RcInput_FoldOmega 从 K_6 刀折算定速率（开关没有线性，二值
+ *                即满速率）；WEB=网页 omega 轴直传（2026-10-20 起，手柄/挡位杆
+ *                线性回转）。整车旋转的线性/定速率差别在采集侧分冶，Build 一条路
  *   joint[k]   = K_(k+1) 方向刀：A 刀 → +key_joint_rate，B 刀 → −key_joint_rate，
  *                中位（全断）→ 0；同开关 A/B 同 1 = 矛盾输入 → 0（失安全）
  *   keys       = 方向刀位图透传（位布局见下方宏组；含义归 UserApp）
@@ -36,11 +38,13 @@ typedef struct
 } RcInput_Config_t;
 
 /* 一拍输入快照（采集侧填，RcInput_Build 消费）。轴已是逻辑量：
- * PHYS 采集侧调 RcInput_NormalizeAxis 产出；WEB 采集侧取串口帧直传 */
+ * PHYS 采集侧调 RcInput_NormalizeAxis / RcInput_FoldOmega 产出；
+ * WEB 采集侧取串口帧直传 */
 typedef struct
 {
     int16_t  vx;            /* 轴逻辑量 ±ROBOT_CMD_RANGE（Build 只做钳位） */
     int16_t  vy;
+    int16_t  omega;         /* 整车旋转轴逻辑量 ±ROBOT_CMD_RANGE（来源见文件头） */
     uint16_t keys;          /* 方向刀位图（位布局见下方宏组），1=该刀接地 */
     uint8_t  estop;         /* 1 = K_EB 按下（急停） */
 } RcInput_Raw_t;
@@ -88,6 +92,17 @@ typedef struct
  *         整数运算，结果可精确复现（PcTests 断言用同式手算值）。
  */
 int16_t RcInput_NormalizeAxis(uint16_t raw, uint16_t center, uint16_t deadband);
+
+/**
+ * @brief  K_6 方向刀 → 整车旋转逻辑量（PHYS 采集侧折算，纯函数）
+ * @param  keys 消抖后的方向刀位图
+ * @param  rate K_6 按住的旋转速率（±ROBOT_CMD_RANGE 内）
+ * @retval A 刀 → +rate；B 刀 → −rate；全断 → 0；A/B 同 1 矛盾 → 0（失安全）
+ * @note   开关没有线性能力，二值即满速率（2026-10-16 拍板；慢旋根因=车端
+ *         Shape 死区吃掉半量程，rate 已取满幅）。折算在采集侧做、Build 只
+ *         钳位直通 omega——网页的线性 omega 轴与开关定速率在 Build 前汇合。
+ */
+int16_t RcInput_FoldOmega(uint16_t keys, int16_t rate);
 
 /**
  * @brief  两拍一致消抖（纯函数，采集侧每拍调用）

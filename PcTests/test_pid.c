@@ -3,7 +3,7 @@
  * @brief   PID 单测（W2.1，host 编译）——规格固化的边界用例：
  *          P/I/D 基本量纲、MaxOut/IntegralLimit 双重限幅、死区、梯形积分、
  *          微分先行/微分滤波、变速积分、堵转计数与闩锁、dt=0、err 跳变、
- *          多实例隔离（static 污染回归）。
+ *          多实例隔离（static 污染回归）、前馈 Kff（量纲/死区透传/抗饱和）。
  */
 #include "bsp_sys.h"
 #include "bsp_sys_stub.h"
@@ -277,6 +277,54 @@ static void TestMultiInstanceIsolation(void)
     CHECK_NEAR(b.Iout, 5.0, 1e-5);
 }
 
+/* 前馈 Kff：输出含 Kff·指令（与误差无关）；误差到零落死区后前馈照给
+ * （托住"已到位"的匀速出力，不然围着死区边界振荡）；抗饱和把前馈算进
+ * "真正要给的总量"——前馈顶近限幅后积分不再白积（Kff=0 时旧用例已盖） */
+static void TestFeedforward(void)
+{
+    /* 基本量纲：P/I/D 全零，纯前馈，符号随指令 */
+    PID_Init_Config_s cfg = {
+        .Kp = 0.0f, .Ki = 0.0f, .Kd = 0.0f, .Kff = 0.01f,
+        .MaxOut = 1e6f, .DeadBand = 0.0f,
+        .Improve = PID_IMPROVE_NONE,
+    };
+    PIDInstance pid;
+    PIDInit(&pid, &cfg);
+
+    float out = Step1k(&pid, 0.0f, 50.0f); /* out = 0.01×50，与误差无关 */
+    CHECK_NEAR(out, 0.5, 1e-6);
+    CHECK_NEAR(pid.Fout, 0.5, 1e-6);
+
+    out = Step1k(&pid, 50.0f, 50.0f);      /* err=0 落死区分支：前馈保留 */
+    CHECK_NEAR(out, 0.5, 1e-6);
+
+    out = Step1k(&pid, 0.0f, -50.0f);      /* 负指令：前馈同号 */
+    CHECK_NEAR(out, -0.5, 1e-6);
+
+    /* 与 P 相加：out = Kp·err + Kff·ref（前馈不吃掉也不顶替 PID） */
+    PID_Init_Config_s with_p = cfg;
+    with_p.Kp = 1.0f;
+    with_p.MaxOut = 20.0f;
+    PIDInit(&pid, &with_p);
+    out = Step1k(&pid, 0.0f, 10.0f);       /* 1×10 + 0.01×10 = 10.1 */
+    CHECK_NEAR(out, 10.1, 1e-5);
+
+    /* 抗饱和含前馈：Fout=0.9 顶近 MaxOut=1.0，Iout 累到 0.11 时总量首过限，
+     * 下一拍起 ITerm 当拍作废——Iout 冻在 0.11，而不是朝 IntegralLimit=5 白积；
+     * （若饱和判断漏加前馈，temp_Output=0.11 永远到不了 1.0，Iout 会积满） */
+    PID_Init_Config_s aw = cfg;
+    aw.Kff = 0.9f;
+    aw.MaxOut = 1.0f;
+    aw.Ki = 10.0f;
+    aw.Improve = PID_Integral_Limit;
+    aw.IntegralLimit = 5.0f;
+    PIDInit(&pid, &aw);
+    for (int i = 0; i < 100; i++)
+        Step1k(&pid, 0.0f, 1.0f);
+    CHECK_NEAR(pid.Iout, 0.11, 1e-4);
+    CHECK_NEAR(pid.Output, 1.0, 1e-5);     /* 总量被输出限幅收口 */
+}
+
 void TestPid_Run(void)
 {
     printf("[pid]\n");
@@ -291,4 +339,5 @@ void TestPid_Run(void)
     TestZeroDt();
     TestErrStepJump();
     TestMultiInstanceIsolation();
+    TestFeedforward();
 }

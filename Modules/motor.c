@@ -77,6 +77,7 @@ static void SpeedLoopInit(void)
     c.Kp = ROBOT_MOTOR_SPEED_KP;
     c.Ki = ROBOT_MOTOR_SPEED_KI;
     c.Kd = ROBOT_MOTOR_SPEED_KD;
+    c.Kff = ROBOT_MOTOR_SPEED_KFF;
     c.MaxOut = 1.0f;        /* 输出 = duty 满量程，直喂 Motor_SetDuty 零换算 */
     c.DeadBand = 0.0f;
     c.Improve = (PID_Improvement_e)(PID_Integral_Limit | PID_Trapezoid_Intergral |
@@ -170,21 +171,23 @@ float Motor_GetIout(MotorCh_t ch)
     return (ch < MOTOR_CH_COUNT) ? s_speed_pid[(uint8_t)ch].Iout : 0.0f;
 }
 
-void Motor_SetTune(float kp, float ki, float kd)
+void Motor_SetTune(float kp, float ki, float kd, float kff)
 {
     for (uint8_t i = 0u; i < MOTOR_CH_COUNT; i++)
     {
         s_speed_pid[i].Kp = kp;
         s_speed_pid[i].Ki = ki;
         s_speed_pid[i].Kd = kd;
+        s_speed_pid[i].Kff = kff;
     }
 }
 
-void Motor_GetTune(float *kp, float *ki, float *kd)
+void Motor_GetTune(float *kp, float *ki, float *kd, float *kff)
 {
     *kp = s_speed_pid[0].Kp;
     *ki = s_speed_pid[0].Ki;
     *kd = s_speed_pid[0].Kd;
+    *kff = s_speed_pid[0].Kff;
 }
 
 void Motor_Enable(void)

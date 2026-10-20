@@ -4,6 +4,8 @@
  *
  * 改动清单见 pid.h 头部；各优化环节函数与原版一一对应，
  * 计算顺序（堵转检测 → 算间隔 → P/I/D → 滤波 → 限幅）原样保留。
+ * 本项目在前馈上动过原版结构：输出 = P/I/D + Kff·指令（pid.h 头部
+ * "本项目新增"一节），其余计算顺序不变。
  */
 #include "pid.h"
 #include "bsp_sys.h"
@@ -41,7 +43,9 @@ static void f_Integral_Limit(PIDInstance *pid)
     /* 这两个临时量必须是函数内的局部变量——原版用了 static（所有实例
      * 共用一份），几个 PID 一起算会互相覆盖 */
     float temp_Iout = pid->Iout + pid->ITerm;
-    float temp_Output = pid->Pout + pid->Iout + pid->Dout;
+    /* 饱和判断看的是"真正要往外给的总量"，前馈也算在内：前馈已把输出顶到
+     * 限幅时，积分再积也出不去（会被输出限幅削掉），早停存起来才是防饱和 */
+    float temp_Output = pid->Pout + pid->Iout + pid->Dout + pid->Fout;
 
     if (fabsf(temp_Output) > pid->MaxOut)   /* 输出已经顶到限幅 */
     {
@@ -133,6 +137,7 @@ void PIDInit(PIDInstance *pid, const PID_Init_Config_s *config)
     pid->Kp = config->Kp;
     pid->Ki = config->Ki;
     pid->Kd = config->Kd;
+    pid->Kff = config->Kff;
     pid->MaxOut = config->MaxOut;
     pid->DeadBand = config->DeadBand;
     pid->Improve = config->Improve;
@@ -150,6 +155,7 @@ void PIDInit(PIDInstance *pid, const PID_Init_Config_s *config)
     pid->Pout = 0.0f;
     pid->Iout = 0.0f;
     pid->Dout = 0.0f;
+    pid->Fout = 0.0f;
     pid->ITerm = 0.0f;
     pid->Output = 0.0f;
     pid->Last_Output = 0.0f;
@@ -185,6 +191,11 @@ float PIDCalculate(PIDInstance *pid, float measure, float ref)
     pid->Ref = ref;
     pid->Err = pid->Ref - pid->Measure;
 
+    /* 前馈：按指令先垫一份"该有的出力"（速度环里 = 匀速所需占空比）。
+     * 与误差大小无关，所以放在死区分支之外——死区里也照给，不然到点后
+     * 前馈断供、被控量掉下来、又冲出死区，围着死区边界来回振荡 */
+    pid->Fout = pid->Kff * pid->Ref;
+
     if (fabsf(pid->Err) > pid->DeadBand) /* 误差在死区外才计算 */
     {
         /* 基本位置式 PID：P 看当前误差，I 累积历史误差，D 看误差变化快慢 */
@@ -204,16 +215,17 @@ float PIDCalculate(PIDInstance *pid, float measure, float ref)
             f_Integral_Limit(pid);
 
         pid->Iout += pid->ITerm;                         /* 积分累计 */
-        pid->Output = pid->Pout + pid->Iout + pid->Dout; /* 三项加总 */
+        pid->Output = pid->Pout + pid->Iout + pid->Dout + pid->Fout; /* 四项加总 */
 
         if (pid->Improve & PID_OutputFilter)
             f_Output_Filter(pid);
 
         f_Output_Limit(pid);
     }
-    else /* 误差在死区内：输出清零、这次新增积分清零（历史累计的积分保留） */
+    else /* 误差在死区内：PID 三项断供、这次新增积分清零（历史累计的积分
+          * 保留），前馈照给——正好用来托住"已到位"所需的出力 */
     {
-        pid->Output = 0.0f;
+        pid->Output = pid->Fout;
         pid->ITerm = 0.0f;
     }
 

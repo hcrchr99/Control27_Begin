@@ -72,8 +72,17 @@
  *   ⚠ 空载值，实车负载下须细调
  * ⚠ LINES/GEAR 已重标：13 线 ×4 ×减速比 48 = 2496 counts/输出圈 */
 #define ROBOT_MOTOR_SPEED_KP            0.014f
-#define ROBOT_MOTOR_SPEED_KI            0.06f
-#define ROBOT_MOTOR_SPEED_KD            0.00025f
+#define ROBOT_MOTOR_SPEED_KI            0.09f
+#define ROBOT_MOTOR_SPEED_KD            0.000f
+/* 前馈增益（duty/rpm）：出力里按指令直接垫的一份"匀速小抄"——电机转这个
+ * 速度本来就需要这么大占空比，数值上 ≈ 开环增益（rpm/duty）的倒数。没有它，
+ * 匀速出力全靠积分慢慢顶（稳态 I 常年高位、斜坡恒差 ~15rpm）；有了它，
+ * 积分只修小偏差，阶跃瞬间到位也不用逼大 P（P 大了阶跃会抖）。
+ * 初值 = 2026-10-09 换电源模块重标的开环增益 ≈305rpm/duty（空载）的倒数
+ * ≈ 0.0033。标定法（整定台 13 一次做完）：R<rpm> 给定 → 稳定后读 duty
+ * （STAT 行/SHOW），Kff = duty÷ref，正反各测一点取均值；空载标定值带载
+ * 会偏小，实车装配后须复标 */
+#define ROBOT_MOTOR_SPEED_KFF           0.004f
 /* 积分累计上限（duty 量纲）：抗启动冲击/堵转甩积分 */
 #define ROBOT_MOTOR_SPEED_INTEGRAL_LIMIT 0.70f
 /* 微分低通时间常数（秒），Kd≠0 时生效 */
@@ -238,7 +247,7 @@
 /* 逻辑量→物理量满量程（归一化 +1.0 对应的物理值）—— 孪生默认，实车复标 */
 #define ROBOT_APP_VX_MAX_MPS        0.45f       /* 前后平移满速 m/s */
 #define ROBOT_APP_VY_MAX_MPS        0.45f       /* 左右横移满速 m/s */
-#define ROBOT_APP_W_MAX_RADPS       1.0f        /* 自转满速 rad/s */
+#define ROBOT_APP_W_MAX_RADPS       2.0f        /* 自转满速 rad/s */
 #define ROBOT_APP_JOINT_RATE_DPS    180.0f      /* 关节速率满幅 °/s（孪生按舵机估值，可改） */
 
 /* 麦轮几何（CAD 实测，实车装配复核）：L=(轴距+轮距)/2，R=轮半径（含辊子包络） */
@@ -246,7 +255,7 @@
 #define ROBOT_APP_MECANUM_R_M       0.034f
 
 /* 底盘手感（摇杆曲线，实车调参只改这里） */
-#define ROBOT_APP_CHASSIS_DEADBAND  0.25f       /* 归一化量纲死区，内按零处理 */
+#define ROBOT_APP_CHASSIS_DEADBAND  0.15f       /* 归一化量纲死区，内按零处理 */
 
 /* sense_task 节拍（2026-10-17 拍板，评估文档 T10 裁决）：I2C2@400kHz 下
  * 整屏刷新 ~25ms + 本延时 50ms ≈ 75ms 实际显示周期（检录人眼足够）；若

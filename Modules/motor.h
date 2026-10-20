@@ -100,16 +100,16 @@ float Motor_GetDuty(MotorCh_t ch);
 float Motor_GetIout(MotorCh_t ch);
 
 /**
- * @brief  运行时改速度环 PID 参数（整定台用；写全部四路，立即生效）
+ * @brief  运行时改速度环 PID 参数 + 前馈增益（整定台用；写全部四路，立即生效）
  * @note   不回写 robot_config.h——整定终值人工抄回配置（配置是上电缺省，
  *         运行时改动只活在本次上电）
  */
-void Motor_SetTune(float kp, float ki, float kd);
+void Motor_SetTune(float kp, float ki, float kd, float kff);
 
 /**
- * @brief  读当前速度环 PID 参数（整定台 SHOW 回显用）
+ * @brief  读当前速度环 PID 参数 + 前馈增益（整定台 SHOW 回显用）
  */
-void Motor_GetTune(float *kp, float *ki, float *kd);
+void Motor_GetTune(float *kp, float *ki, float *kd, float *kff);
 
 /**
  * @brief  速度环一步（测速累计 → PID → SetDuty），1kHz 调用

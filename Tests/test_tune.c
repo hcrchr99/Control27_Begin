@@ -9,6 +9,7 @@
  *  - 命令通道：UART4（VOFA+ 数据口复用，双向）文本行，VOFA+ 控件
  *    （按钮发 ON\n / 滑条发 R%.1f\n）或任意串口助手（921600）下发：
  *        P<kp> I<ki> D<kd>   设 PID（立即生效，如 P0.005 I0.05 D0）
+ *        F<kff>              设前馈增益（如 F0.0033，标定法见 robot_config.h）
  *        R<rpm>              设速度指令（R60 / R-30，钳位 MAX_RPM）
  *        ON / OFF            功率级使能 / 关断
  *        SHOW                回显参数、指令与状态
@@ -17,6 +18,8 @@
  *
  * 整定流程：SHOW 核对 → 拖 R 滑条看阶跃波形 → 改 P/I 迭代 → 终值抄回
  * robot_config.h（运行时改动不做持久化，配置文件才是唯一真值）。
+ * 前馈标定（一次做完）：R 给定 → 稳定后 STAT/SHOW 读 duty → F<duty÷ref>
+ * 正反各测一点取均值 → 终值抄回 robot_config.h 的 ROBOT_MOTOR_SPEED_KFF。
  *
  * 单电机测试态（同台 6）：只整定 CH4；恢复多路时把 TUNE_CH 换成循环全通道。
  *
@@ -107,10 +110,11 @@ static float ParseFloat(const char *s)
 
 static void PrintStatus(void)
 {
-    float kp, ki, kd;
-    Motor_GetTune(&kp, &ki, &kd);
-    Log_Printf("[TUNE] Kp=%ld/10000 Ki=%ld/10000 Kd=%ld/10000 ref=",
-               (long)(kp * 10000.0f), (long)(ki * 10000.0f), (long)(kd * 10000.0f));
+    float kp, ki, kd, kff;
+    Motor_GetTune(&kp, &ki, &kd, &kff);
+    Log_Printf("[TUNE] Kp=%ld/10000 Ki=%ld/10000 Kd=%ld/10000 Kff=%ld/10000 ref=",
+               (long)(kp * 10000.0f), (long)(ki * 10000.0f),
+               (long)(kd * 10000.0f), (long)(kff * 10000.0f));
     Log_RpmX10(s_ref);
     Log_Printf(" rpm 功率级=%s 闭环=%s\r\n",
                s_enabled ? "ON" : "OFF", s_armed ? "ARMED" : "LOCKED");
@@ -124,14 +128,24 @@ static void HandleCommand(const char *line)
     case 'I': case 'i':
     case 'D': case 'd':
     {
-        float kp, ki, kd;
-        Motor_GetTune(&kp, &ki, &kd);
+        float kp, ki, kd, kff;
+        Motor_GetTune(&kp, &ki, &kd, &kff);
         float v = ParseFloat(line + 1);
         if (line[0] == 'P' || line[0] == 'p') { kp = v; }
         if (line[0] == 'I' || line[0] == 'i') { ki = v; }
         if (line[0] == 'D' || line[0] == 'd') { kd = v; }
-        Motor_SetTune(kp, ki, kd);
+        Motor_SetTune(kp, ki, kd, kff);
         Log_Printf("[TUNE] PID 更新\r\n");
+        PrintStatus();
+        break;
+    }
+    case 'F': case 'f':
+    {
+        float kp, ki, kd, kff;
+        Motor_GetTune(&kp, &ki, &kd, &kff);
+        kff = ParseFloat(line + 1);
+        Motor_SetTune(kp, ki, kd, kff);
+        Log_Printf("[TUNE] Kff 更新（稳态 duty÷ref 即标定值）\r\n");
         PrintStatus();
         break;
     }
@@ -162,7 +176,7 @@ static void HandleCommand(const char *line)
         PrintStatus();
         break;
     default:
-        Log_Printf("[TUNE] 未知命令 '%s'（可用：P/I/D/R/ON/OFF/SHOW）\r\n", line);
+        Log_Printf("[TUNE] 未知命令 '%s'（可用：P/I/D/F/R/ON/OFF/SHOW）\r\n", line);
         break;
     }
 }
@@ -175,14 +189,15 @@ void Test_Tune_Init(void)
     Motor_Init();       /* STBY 保持低 + 速度环装参清态 */
     Bsp_Vofa_Init();    /* UART4 @921600 + 命令接收入口 */
 
-    float kp, ki, kd;
-    Motor_GetTune(&kp, &ki, &kd);
+    float kp, ki, kd, kff;
+    Motor_GetTune(&kp, &ki, &kd, &kff);
     Log_Printf("[TUNE] 13=TUNE 速度环整定台：Kp=%ld/10000 Ki=%ld/10000 Kd=%ld/10000 "
-               "CALC=%ums PPR=%ld\r\n",
-               (long)(kp * 10000.0f), (long)(ki * 10000.0f), (long)(kd * 10000.0f),
+               "Kff=%ld/10000 CALC=%ums PPR=%ld\r\n",
+               (long)(kp * 10000.0f), (long)(ki * 10000.0f),
+               (long)(kd * 10000.0f), (long)(kff * 10000.0f),
                (unsigned)ROBOT_MOTOR_SPEED_CALC_MS, (long)ROBOT_ENC_PPR);
     Log_Printf("[TUNE] VOFA+ JustFloat 4ch @UART4/921600：{ref, 实测, duty, Iout}\r\n");
-    Log_Printf("[TUNE] 命令（同口发文本行）：P<kp> I<ki> D<kd> R<rpm> ON OFF SHOW\r\n");
+    Log_Printf("[TUNE] 命令（同口发文本行）：P<kp> I<ki> D<kd> F<kff> R<rpm> ON OFF SHOW\r\n");
 
     s_armed = SelfTest();
     if (s_armed)

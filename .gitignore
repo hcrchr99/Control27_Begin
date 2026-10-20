@@ -30,3 +30,7 @@ compile_commands.json
 
 # Python bytecode (PcTwin)
 __pycache__/
+
+# 展示产物（本地保留，不入库）：中期汇报 PPT/deck.py/素材 img/风格样张
+# style/网页版汇报 web-report/散图，~18MB 二进制与静态文件，与代码演进无关
+reports/

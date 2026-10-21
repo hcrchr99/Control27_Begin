@@ -9,6 +9,7 @@ int s_total;
 int s_fail;
 
 void TestPid_Run(void);
+void TestSpeedEst_Run(void);
 void TestUserLib_Run(void);
 void TestLpfEase_Run(void);
 void TestRcCmd_Run(void);
@@ -22,6 +23,7 @@ int main(void)
 {
     printf("== RM_Begin algorithm PC tests ==\n");
     TestPid_Run();
+    TestSpeedEst_Run();
     TestUserLib_Run();
     TestLpfEase_Run();
     TestRcCmd_Run();

@@ -44,16 +44,23 @@
 #define ROBOT_MOTOR_CH4_PWM         4
 #define ROBOT_MOTOR_CH4_DIR         4
 
-/* ---- W2.3 速度环（M 法测速 + 位置式 PID，MaxOut=1.0f 直喂 Motor_SetDuty）----
+/* ---- W2.3 速度环（M/T 测速 + 位置式 PID，MaxOut=1.0f 直喂 Motor_SetDuty）----
  * 整定纪律（Modules 规划）：先 P 后 I 再 D；每改一次参数在下面补一行：
  *   日期 | 工况 | Kp/Ki/Kd | 现象（超调/振荡/稳态误差）
- * Kd 初值 0：速度反馈是测速窗的阶梯值，微分项会放大这种量化噪声，出现
- * 振荡后再引入并配微分滤波 */
-/* M 法测速窗（拍）：每拍读一次编码器增量累计，满 CALC_MS 拍折算一次 rpm。
- * ⚠ 折算按 Bsp_GetUs 实测窗长，拍数≠毫秒（任务节拍≠1kHz）——曾按固定
- * 系数折算致读数整体×2 且随调度漂移锯齿抖动（2026-10-09 表显 190 ↔
- * A相 625Hz 定案）。本值只是窗长下限：越大越平滑越钝，嫌钝可缩只改此宏 */
-#define ROBOT_MOTOR_SPEED_CALC_MS       20
+ * Kd 现值 0：M 法时代反馈是测速窗的阶梯值，微分放大量化噪声；M/T 换血后
+ * 读数每拍新鲜，Kd 可试复活当阻尼（配微分滤波），振荡了再收 */
+/* M/T 测速参数（喂 Modules/algorithm/speed_est，mt-speed-pending S-C/S-D）：
+ * 边沿采样环 + 边沿吸附窗，测速误差只剩 µs 级时间戳噪声——旧 M 法 20ms 窗
+ * 在低速一格台阶就是 1.2rpm，为麦轮低速横移"一下一下"一案换血。
+ * ⚠ 旧 M 法"按 Bsp_GetUs 实测窗长折算"的教训（2026-10-09 读数×2 且随调度
+ * 锯齿抖动）在 M/T 里以 Δt 全实测延续：窗两端吸附真实边沿，调度怎么漂
+ * 读数都物理准确 */
+#define ROBOT_MT_WIN_MIN_US             4000u   /* 最小窗龄 µs：越短越新鲜，越吃编码器刻线不均的抖 */
+#define ROBOT_MT_STALE_US               30000u  /* 静止超时 µs：无边沿超此时长判停归 0 */
+/* 读数低通 RC µs：窗龄吸附本身带 ±半边沿的"快照抖动"（4ms 窗 @55rpm ≈ ±6rpm），
+ * P 项会放大它——默认开 2ms（1kHz 下抖动约减半、只加 ~2ms 滞后）；设 0 关掉
+ * 看原始抖动，嫌钝可加大 */
+#define ROBOT_MT_LPF_RC_US              2000.0f
 /* 设定转速钳位（rpm）—— 待按电机铭牌实测收边 */
 #define ROBOT_MOTOR_SPEED_MAX_RPM       150.0f
 /* PID 参数（输出量纲 = duty -1..+1）—— 整定记录：
@@ -71,8 +78,8 @@
  *   四路跟踪、稳态收敛（斜坡段滞后 ~15rpm 为 PI 跟斜坡固有，非失配）
  *   ⚠ 空载值，实车负载下须细调
  * ⚠ LINES/GEAR 已重标：13 线 ×4 ×减速比 48 = 2496 counts/输出圈 */
-#define ROBOT_MOTOR_SPEED_KP            0.014f
-#define ROBOT_MOTOR_SPEED_KI            0.09f
+#define ROBOT_MOTOR_SPEED_KP            0.0273f
+#define ROBOT_MOTOR_SPEED_KI            0.098f
 #define ROBOT_MOTOR_SPEED_KD            0.000f
 /* 前馈增益（duty/rpm）：出力里按指令直接垫的一份"匀速小抄"——电机转这个
  * 速度本来就需要这么大占空比，数值上 ≈ 开环增益（rpm/duty）的倒数。没有它，
@@ -82,7 +89,7 @@
  * ≈ 0.0033。标定法（整定台 13 一次做完）：R<rpm> 给定 → 稳定后读 duty
  * （STAT 行/SHOW），Kff = duty÷ref，正反各测一点取均值；空载标定值带载
  * 会偏小，实车装配后须复标 */
-#define ROBOT_MOTOR_SPEED_KFF           0.004f
+#define ROBOT_MOTOR_SPEED_KFF           0.005f
 /* 积分累计上限（duty 量纲）：抗启动冲击/堵转甩积分 */
 #define ROBOT_MOTOR_SPEED_INTEGRAL_LIMIT 0.70f
 /* 微分低通时间常数（秒），Kd≠0 时生效 */
@@ -247,7 +254,7 @@
 /* 逻辑量→物理量满量程（归一化 +1.0 对应的物理值）—— 孪生默认，实车复标 */
 #define ROBOT_APP_VX_MAX_MPS        0.45f       /* 前后平移满速 m/s */
 #define ROBOT_APP_VY_MAX_MPS        0.45f       /* 左右横移满速 m/s */
-#define ROBOT_APP_W_MAX_RADPS       2.0f        /* 自转满速 rad/s */
+#define ROBOT_APP_W_MAX_RADPS       2-+.0f        /* 自转满速 rad/s */
 #define ROBOT_APP_JOINT_RATE_DPS    180.0f      /* 关节速率满幅 °/s（孪生按舵机估值，可改） */
 
 /* 麦轮几何（CAD 实测，实车装配复核）：L=(轴距+轮距)/2，R=轮半径（含辊子包络） */
@@ -255,7 +262,7 @@
 #define ROBOT_APP_MECANUM_R_M       0.034f
 
 /* 底盘手感（摇杆曲线，实车调参只改这里） */
-#define ROBOT_APP_CHASSIS_DEADBAND  0.15f       /* 归一化量纲死区，内按零处理 */
+#define ROBOT_APP_CHASSIS_DEADBAND  0.08f       /* 归一化量纲死区，内按零处理 */
 
 /* sense_task 节拍（2026-10-17 拍板，评估文档 T10 裁决）：I2C2@400kHz 下
  * 整屏刷新 ~25ms + 本延时 50ms ≈ 75ms 实际显示周期（检录人眼足够）；若
@@ -283,6 +290,6 @@
  * 11=RC_CMD(W2.2) 13=TUNE(W2.3 速度环整定台，串口命令调参+1kHz 回传+启动
  * 自检；12 曾为 DWT 终审台已清理不用)。激活时业务任务自动让位。
  * 2026-10-13 业务态出厂值归 0（W2.5 task 接线完成）；实机复标/联验时临时改回专项台 */
-#define ROBOT_TEST_BENCH            0
+#define ROBOT_TEST_BENCH           0
 
 #endif /* ROBOT_CONFIG_H */

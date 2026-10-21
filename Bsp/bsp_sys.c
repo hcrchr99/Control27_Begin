@@ -65,12 +65,21 @@ void Bsp_DwtReArm(void)
 
 uint32_t Bsp_GetUs(void)
 {
+    /* ⚠ 读改写须临界段：本函数同时被任务和边沿中断调用（M/T 测速时间戳），
+     * 裸奔时任务在中断回绕扩展的缝里写回backward快照，会让个别时间戳差出
+     * 整整一个回绕周期（25.57s）——S-C 板验每 25.6s 一拍归零的真凶。
+     * 关中断约几十个周期，调用频率（1kHz 环 + ~3kHz 边沿）下开销可忽略。
+     * 64 位除法移出临界段，用局部快照算 */
+    uint32_t prim = __get_PRIMASK();
+    __disable_irq();
     uint32_t now = DWT->CYCCNT;
     s_cyc_ext += (uint32_t)(now - s_cyc_last);  /* 无符号差分：25.57s 回绕自动正确 */
     s_cyc_last = now;
+    uint64_t ext = s_cyc_ext;
+    __set_PRIMASK(prim);
     /* 64 位累计 → 除法降为 64/32（__aeabi_uldivmod，控制环频率可承受）；
      * 返回值 71.6 分钟才回绕 */
-    return (uint32_t)(s_cyc_ext * 1000000u / SystemCoreClock);
+    return (uint32_t)(ext * 1000000u / SystemCoreClock);
 }
 
 uint32_t Bsp_GetMs(void)

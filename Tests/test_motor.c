@@ -150,11 +150,11 @@ void Test_Motor_Init(void)
     Motor_Init();       /* STBY 保持低：不出力，安全（速度环同时装参清态） */
     Bsp_Vofa_Init();    /* UART4 提速 921600，VOFA+ JustFloat 整定流专用 */
     /* 打印固件编译进的速度环参数（排查"改了参数没重编/没烧上"） */
-    Log_Printf("[T-MOTOR] 速度环参数 Kp=%ld/10000 Ki=%ld/10000 CALC=%ums "
+    Log_Printf("[T-MOTOR] 速度环参数 Kp=%ld/10000 Ki=%ld/10000 MT窗=%lums "
                "PPR=%ld\r\n",
                (long)(ROBOT_MOTOR_SPEED_KP * 10000.0f),
                (long)(ROBOT_MOTOR_SPEED_KI * 10000.0f),
-               (unsigned)ROBOT_MOTOR_SPEED_CALC_MS,
+               (unsigned long)(ROBOT_MT_WIN_MIN_US / 1000u),
                (long)ROBOT_ENC_PPR);
     /* Bsp_GetUs 自检：PID 的 dt 靠它（DWT 需 Bsp_Init 里 LAR 解锁，坑#15） */
     {

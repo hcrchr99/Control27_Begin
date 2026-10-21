@@ -13,6 +13,10 @@
  *        R<rpm>              设速度指令（R60 / R-30，钳位 MAX_RPM）
  *        ON / OFF            功率级使能 / 关断
  *        SHOW                回显参数、指令与状态
+ *        M                   M/T 探针快照（四通道边沿采样环 vs 闭环 M 法对照，
+ *                            mt-speed-pending 板验观察口，锁死态也可用）
+ *        T                   [STAT] 基线流开关（默认开；VOFA+ 对照用，
+ *                            纯文本调试嫌它刷屏就关掉）
  *  - 数据回传：1kHz JustFloat 四通道 {ref, 实测rpm, duty, Iout}（bsp_vofa）；
  *  - 自检通过后 ref=0 + Enable：电机保持静止待命，发 R 即转。
  *
@@ -34,6 +38,8 @@
 #include "bsp_log.h"
 #include "bsp_vofa.h"
 #include "robot_config.h"
+#include "speed_est.h"
+#include <math.h>
 #include <stdlib.h>
 
 #define TUNE_CH         MOTOR_CH4
@@ -45,6 +51,7 @@
 static bool s_armed;        /* 自检通过、闭环已就绪（1kHz 循环在跑） */
 static bool s_enabled;      /* 功率级当前态（记账，STBY 实际态） */
 static float s_ref;         /* 当前速度指令（rpm，含符号） */
+static bool s_stat_en = true;   /* [STAT] 100ms 基线流开关（T 命令切换） */
 
 /* 0.1 定点打印 rpm（newlib-nano 无 %f；+12.3 → "+12.3"） */
 static void Log_RpmX10(float rpm)
@@ -56,6 +63,108 @@ static void Log_RpmX10(float rpm)
 }
 
 static void PrintStatus(void);
+
+/* -------------------- M/T 探针（板验观察口，只读） --------------------
+ * ⚠ S-C 起速度环是采样环的常驻消费者（1kHz TakeNew），探针在闭环态让位：
+ * M 命令改为直接显示闭环四路 M/T 读数（与整定/VOFA 同源）。
+ * 锁死态（速度环不跑、采样环无主）探针接管：1kHz 喂 SpeedEst，手拨轮子
+ * 即可分辨"电机坏还是编码器坏"，探针不陪葬。
+ * 判据（bsp_encoder.h 脚位一节）：每边沿恰 2 计数，单向匀速转动时窗内
+ * dcnt = 2×n（打印口径 200/100）；来回拨 dcnt 是净值、比值小于 2 属正常。
+ * 每输出圈 1248 沿 : 2496 计数。CH3 抓 PA7（B 相），行为应与其他通道一致。
+ * 2026-10-21 首轮板验教训：拨完再按 M 已过静止超时、读数归零造成困惑 →
+ * MT 改峰值保持；快拨击穿锁死态 100Hz 喂的 16 格上限 → 锁死态提到 1kHz。 */
+static SpeedEst_t s_mt_est[4];
+static SpeedEstDrip_t s_mt_drip[4];     /* 滴喂历史（锁死态 1kHz 每拍只来一两滴） */
+static Encoder_Sample_t s_mt_buf[ENC_RING_DEPTH];
+static int32_t s_mt_last_cnt[4];    /* 探针自己的计数衔接点（与 batch 首样本差分） */
+static uint32_t s_mt_n[4];          /* 自上次 M 打印以来的边沿总数 */
+static int32_t s_mt_dcnt[4];        /* 同窗净计数（单向匀速时 = 2×n） */
+static float s_mt_peak[4];          /* 同窗 |读数| 峰值（带符号），拨完再按 M 也能看到 */
+static uint32_t s_mt_drops[4];      /* 掉队累计次数（1kHz 喂不应出现） */
+static uint16_t s_mt_last_head[4];  /* 上次 M 时的边沿产出快照（Δhead=产出量） */
+
+static void MtFeed(void)
+{
+    /* Bsp 的 Encoder_Sample_t 与算法层 SpeedEst_Sample_t 各持一份（分层禁互
+     * include），消费侧逐字段搬运——S-C 的速度环也照此办理 */
+    SpeedEst_Sample_t se[ENC_RING_DEPTH];
+    for (uint8_t i = 0u; i < 4u; i++)
+    {
+        bool dropped = false;
+        uint8_t n = Encoder_TakeNew((uint8_t)(ENC_CH1 + i), s_mt_buf,
+                                    (uint8_t)ENC_RING_DEPTH, &dropped);
+        if (dropped)
+        {
+            s_mt_drops[i]++;
+        }
+        for (uint8_t j = 0u; j < n; j++)
+        {
+            se[j].cnt = s_mt_buf[j].cnt;
+            se[j].us = s_mt_buf[j].us;
+            s_mt_dcnt[i] += se[j].cnt - s_mt_last_cnt[i];
+            s_mt_last_cnt[i] = se[j].cnt;
+        }
+        s_mt_n[i] += n;
+        (void)SpeedEstDrip_Update(&s_mt_drip[i], &s_mt_est[i], se, n, Bsp_GetUs());
+        float v = s_mt_est[i].out;
+        if (fabsf(v) > fabsf(s_mt_peak[i]))
+        {
+            s_mt_peak[i] = v;
+        }
+    }
+}
+
+static void MtPrint(void)
+{
+    if (s_armed)
+    {
+        /* 闭环态：探针已让位采样环，四路读数直接取闭环 M/T（同源可信）。
+         * Δhead = 边沿产出（EXTI 真发了几次，bisect 关键量）；drops = 消费
+         * 侧掉队。读数归零时：Δhead 同停=编码器/EXTI 静默（查线）；没转的
+         * 通道 Δhead 疯涨=噪声假边沿风暴；Δhead 正常而读数 0=软件问题 */
+        Log_Printf("[MT] CH   闭环M/T    dhead   drops\r\n");
+        for (uint8_t i = 0u; i < 4u; i++)
+        {
+            uint16_t head = Encoder_Head((uint8_t)(ENC_CH1 + i));
+            uint16_t dhead = (uint16_t)(head - s_mt_last_head[i]);
+            s_mt_last_head[i] = head;
+            Log_Printf("[MT] CH%u ", (unsigned)(i + 1u));
+            Log_RpmX10(Motor_GetSpeedRpm((MotorCh_t)i));
+            Log_Printf("  %5u  %lu\r\n",
+                       (unsigned)dhead, (unsigned long)Motor_MtDrops((MotorCh_t)i));
+        }
+        Log_Printf("[MT] ref=");
+        Log_RpmX10(s_ref);
+        Log_Printf("\r\n");
+        return;
+    }
+
+    /* 锁死态：手拨判编码器侧（峰值保持表） */
+    Log_Printf("[MT] CH   峰值M/T     n    dcnt  dcnt/n  drop次\r\n");
+    for (uint8_t i = 0u; i < 4u; i++)
+    {
+        Log_Printf("[MT] CH%u ", (unsigned)(i + 1u));
+        /* M/T 维持 counts 语义，打印时乘 SIGN 对齐闭环读数口径 */
+        Log_RpmX10(s_mt_peak[i] * (float)ROBOT_MOTOR_SIGN);
+        if (s_mt_n[i] > 0u)
+        {
+            Log_Printf("  %lu  %ld  %ld/100  %lu\r\n",
+                       (unsigned long)s_mt_n[i], (long)s_mt_dcnt[i],
+                       (long)((int64_t)s_mt_dcnt[i] * 100 / (int64_t)s_mt_n[i]),
+                       (unsigned long)s_mt_drops[i]);
+        }
+        else
+        {
+            Log_Printf("  0     0     --      %lu\r\n", (unsigned long)s_mt_drops[i]);
+        }
+        s_mt_n[i] = 0u;
+        s_mt_dcnt[i] = 0;
+        s_mt_peak[i] = 0.0f;
+        s_mt_drops[i] = 0u;
+    }
+    Log_Printf("[MT] 判据：单向匀速拨 dcnt/n=200/100；来回拨 dcnt 是净值，比值<2 正常\r\n");
+}
 
 /* -------------------- 启动自检：负反馈确认 -------------------- */
 
@@ -124,6 +233,9 @@ static void HandleCommand(const char *line)
 {
     switch (line[0])
     {
+    case 'M': case 'm':
+        MtPrint();
+        break;
     case 'P': case 'p':
     case 'I': case 'i':
     case 'D': case 'd':
@@ -172,11 +284,15 @@ static void HandleCommand(const char *line)
             Log_Printf("[TUNE] 功率级 OFF（ref/积分已清）\r\n");
         }
         break;
+    case 'T': case 't':
+        s_stat_en = !s_stat_en;
+        Log_Printf("[TUNE] [STAT] 流=%s\r\n", s_stat_en ? "ON" : "OFF");
+        break;
     case 'S': case 's':
         PrintStatus();
         break;
     default:
-        Log_Printf("[TUNE] 未知命令 '%s'（可用：P/I/D/F/R/ON/OFF/SHOW）\r\n", line);
+        Log_Printf("[TUNE] 未知命令 '%s'（可用：P/I/D/F/R/ON/OFF/SHOW/M/T）\r\n", line);
         break;
     }
 }
@@ -189,13 +305,28 @@ void Test_Tune_Init(void)
     Motor_Init();       /* STBY 保持低 + 速度环装参清态 */
     Bsp_Vofa_Init();    /* UART4 @921600 + 命令接收入口 */
 
+    for (uint8_t i = 0u; i < 4u; i++)
+    {
+        SpeedEst_Config_t c = { (float)ROBOT_ENC_PPR, 4000u, 30000u, 0.0f };
+        SpeedEst_Init(&s_mt_est[i], &c);
+        SpeedEstDrip_Init(&s_mt_drip[i]);
+        s_mt_last_cnt[i] = 0;
+        s_mt_n[i] = 0u;
+        s_mt_dcnt[i] = 0;
+        s_mt_peak[i] = 0.0f;
+        s_mt_drops[i] = 0u;
+        s_mt_last_head[i] = 0u;
+    }
+
     float kp, ki, kd, kff;
     Motor_GetTune(&kp, &ki, &kd, &kff);
     Log_Printf("[TUNE] 13=TUNE 速度环整定台：Kp=%ld/10000 Ki=%ld/10000 Kd=%ld/10000 "
-               "Kff=%ld/10000 CALC=%ums PPR=%ld\r\n",
+               "Kff=%ld/10000 MT窗=%lums 超时=%lums PPR=%ld\r\n",
                (long)(kp * 10000.0f), (long)(ki * 10000.0f),
                (long)(kd * 10000.0f), (long)(kff * 10000.0f),
-               (unsigned)ROBOT_MOTOR_SPEED_CALC_MS, (long)ROBOT_ENC_PPR);
+               (unsigned long)(ROBOT_MT_WIN_MIN_US / 1000u),
+               (unsigned long)(ROBOT_MT_STALE_US / 1000u),
+               (long)ROBOT_ENC_PPR);
     Log_Printf("[TUNE] VOFA+ JustFloat 4ch @UART4/921600：{ref, 实测, duty, Iout}\r\n");
     Log_Printf("[TUNE] 命令（同口发文本行）：P<kp> I<ki> D<kd> F<kff> R<rpm> ON OFF SHOW\r\n");
 
@@ -223,6 +354,10 @@ void Test_Tune_Poll(void)
         {
             HandleCommand(line);
         }
+        else if (line[0] == 'M' || line[0] == 'm')
+        {
+            MtPrint();      /* 探针在锁死态也活着：手拨即可验编码器侧 */
+        }
         else
         {
             Log_Printf("[TUNE] 闭环已锁死，忽略命令 '%s'\r\n", line);
@@ -231,12 +366,20 @@ void Test_Tune_Poll(void)
 
     if (!s_armed)
     {
-        return;                             /* 锁死态：只应答命令，不出力 */
+        /* 锁死态：速度环不跑、采样环无主，探针接管按 1kHz 喂（16 格 @1kHz
+         * = 持续 1.6kHz 边沿上限，快拨一下 ~1 圈/秒 = 1248 边沿/秒不溢出） */
+        for (uint8_t i = 0u; i < 10u; i++)
+        {
+            MtFeed();
+            osDelay(1u);
+        }
+        return;             /* 锁死态：只应答命令，不出力 */
     }
 
-    /* 基线状态流（100ms 一行，CSV 数值行）：VOFA+ 用第二个连接
+    /* 基线状态流（100ms 一行，CSV 数值行，T 命令可关）：VOFA+ 用第二个连接
      * （COM16@115200，FireWater 协议）画它——与 COM14 JustFloat 同屏对照，
      * 谷只在 COM14 出现 = 链路/解析假象；两边同步 = 板上真值 */
+    if (s_stat_en)
     {
         static uint32_t s_stat_last;
         uint32_t now = Bsp_GetMs();
@@ -251,7 +394,8 @@ void Test_Tune_Poll(void)
         }
     }
 
-    /* 1kHz 闭环 × 10 拍（补齐测试台 10ms 轮询），每拍同步发 VOFA 流 */
+    /* 1kHz 闭环 × 10 拍（补齐测试台 10ms 轮询），每拍同步发 VOFA 流。
+     * ⚠ 此环里探针不再喂采样环：S-C 起速度环是采样环的常驻消费者 */
     for (uint8_t i = 0u; i < 10u; i++)
     {
         Motor_SpeedLoopUpdate();

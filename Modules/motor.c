@@ -1,7 +1,8 @@
 /**
  * @file    motor.c
  * @brief   TB6612 ×4 器件驱动（Modules/motor，S5 开环）+ W2.3 速度环
- *          （M 法测速 + 位置式 PID，节拍由任务层 1kHz 驱动）
+ *          （M/T 测速 + 位置式 PID，节拍由任务层 1kHz 驱动；
+ *          2026-10-21 测速自 M 法 20ms 窗换血为 M/T，见 mt-speed-pending）
  *
  * 《spec 对照清单》—— TB6612FNG（东芝数据手册，控制真值表逐条核对，
  * 2026-10-02 查证；验收时逐条打勾）：
@@ -30,6 +31,7 @@
 #include "bsp_sys.h"
 #include "bsp_log.h"
 #include "pid.h"
+#include "speed_est.h"
 #include "robot_config.h"
 
 /* 通道映射表（值来自 robot_config.h；DIR 序号 1..4 → 引脚对 PIN_DIRxA/B） */
@@ -56,19 +58,25 @@ static const uint8_t s_enc_ch[MOTOR_CH_COUNT] = {
     ROBOT_MOTOR_CH1_ENC, ROBOT_MOTOR_CH2_ENC, ROBOT_MOTOR_CH3_ENC, ROBOT_MOTOR_CH4_ENC,
 };
 
-/* 测速窗：拍数只做"到点"门，折算一律用 Bsp_GetUs 实测窗长——
- * ⚠ 曾按"拍数×1ms"固定系数折算，但任务节拍≠1ms（Poll 内 10 拍 osDelay
- * 对齐 + 调度器周期，实际窗长≈40ms），读数整体偏快 2 倍，且窗长随调度
- * 漂移时读数锯齿波动（整定台"周期性掉速抖动"一案）。按真实时间折算后
- * 调度怎么抖读数都物理准确（2026-10-09 表显 190 ↔ A 相 625Hz 实测定案） */
-static uint32_t s_win_start_us;                 /* 窗起点微秒（Bsp_GetUs） */
+/* M/T 测速（mt-speed-pending S-C）：每拍 TakeNew 取采样环新样本 →
+ * SpeedEst 边沿吸附窗折算，1kHz 全程新鲜。旧 M 法 20ms 窗退役（低速一格
+ * 台阶 1.2rpm，是麦轮低速横移"一下一下"案的主根因之一）；"折算一律按
+ * 实测时间"的老教训由 Δt 全实测继承。
+ * ⚠ 本模块是采样环的唯一常驻消费者（Encoder_TakeNew 游标在 bsp 内）；
+ * Encoder_Read 直读仍在，属旁路观察、互不干扰，但闭环读数只认 M/T */
+static SpeedEst_t s_speed_est[MOTOR_CH_COUNT];  /* 每路一个 M/T 估计器 */
+static SpeedEstDrip_t s_se_drip[MOTOR_CH_COUNT];    /* 滴喂历史：1kHz 每拍只来一两滴，
+                                                     * 没有它窗龄凑不齐、估计器抱死旧值 */
+static SpeedEst_Config_t s_se_cfg;              /* 装参留底：掉队复位时按原参重装 */
+static Encoder_Sample_t s_enc_buf[ENC_RING_DEPTH];  /* TakeNew 落点（Bsp 类型） */
+static SpeedEst_Sample_t s_se_buf[ENC_RING_DEPTH];  /* 分层搬运（算法类型，禁裸转） */
 
 static PIDInstance s_speed_pid[MOTOR_CH_COUNT]; /* 每路一个实例（W2.1 PID） */
 static float s_ref_rpm[MOTOR_CH_COUNT];         /* 设定转速（duty 语义符号） */
-static float s_speed_rpm[MOTOR_CH_COUNT];       /* 最近一窗折算的实测转速 */
-static int32_t s_win_acc[MOTOR_CH_COUNT];       /* 测速窗内编码器增量累计 */
-static uint16_t s_win_tick;                     /* 窗内已累计的毫拍数 */
+static float s_speed_rpm[MOTOR_CH_COUNT];       /* 最近一拍折算的实测转速 */
 static uint32_t s_evt_last_us;                  /* 黑匣子限频时间戳 */
+static uint32_t s_mt_drops[MOTOR_CH_COUNT];     /* 采样环掉队累计（板验 bisect 观测量） */
+static uint32_t s_dbg_stale_seen[MOTOR_CH_COUNT];   /* 病灶上报的已见 stale 计数 */
 static bool s_speed_inited;                     /* Motor_Init 已装参（防裸调闭环） */
 
 static void SpeedLoopInit(void)
@@ -94,10 +102,17 @@ static void SpeedLoopInit(void)
         PIDInit(&s_speed_pid[i], &c);
         s_ref_rpm[i] = 0.0f;
         s_speed_rpm[i] = 0.0f;
-        s_win_acc[i] = 0;
     }
-    s_win_tick = 0u;
-    s_win_start_us = Bsp_GetUs();
+    s_se_cfg.ppr = (float)ROBOT_ENC_PPR;
+    s_se_cfg.win_min_us = ROBOT_MT_WIN_MIN_US;
+    s_se_cfg.stale_us = ROBOT_MT_STALE_US;
+    s_se_cfg.lpf_rc_us = ROBOT_MT_LPF_RC_US;
+    for (uint8_t i = 0u; i < MOTOR_CH_COUNT; i++)
+    {
+        SpeedEst_Init(&s_speed_est[i], &s_se_cfg);
+        SpeedEstDrip_Init(&s_se_drip[i]);
+    }
+    s_evt_last_us = 0u;
     s_speed_inited = true;
 }
 
@@ -171,6 +186,11 @@ float Motor_GetIout(MotorCh_t ch)
     return (ch < MOTOR_CH_COUNT) ? s_speed_pid[(uint8_t)ch].Iout : 0.0f;
 }
 
+uint32_t Motor_MtDrops(MotorCh_t ch)
+{
+    return (ch < MOTOR_CH_COUNT) ? s_mt_drops[(uint8_t)ch] : 0u;
+}
+
 void Motor_SetTune(float kp, float ki, float kd, float kff)
 {
     for (uint8_t i = 0u; i < MOTOR_CH_COUNT; i++)
@@ -242,54 +262,69 @@ void Motor_SpeedLoopUpdate(void)
         return;                     /* Motor_Init 未跑：不闭环不出力 */
     }
 
-    /* ① 测速：每毫拍读一次增量累计（防 16 位计数溢出，节拍对齐控制环），
-     *    CALC_MS 到点折算一次 rpm。本函数是编码器唯一读者（契约见 bsp_encoder.h），
-     *    GetSpeedRpm 只读缓存不碰 Encoder_Read。
+    /* ① 测速（M/T）：每拍取走采样环新样本 → 边沿吸附窗折算 rpm，1kHz 全程
+     *    新鲜（旧 M 法 20ms 才刷新一次、低速一格台阶 1.2rpm）。GetSpeedRpm
+     *    只读缓存；Encoder_Read 直读仍在但闭环不消费（旁路观察）。
      *    符号：×ROBOT_MOTOR_SIGN 折算到 duty 语义——闭环后正 ref → 正 duty →
      *    正实测，与开环符号交叉判读"O=一致"同口径，保证负反馈 */
-    s_win_tick++;
+    uint32_t now_us = Bsp_GetUs();
     for (uint8_t i = 0u; i < MOTOR_CH_COUNT; i++)
     {
-        s_win_acc[i] += Encoder_Read(s_enc_ch[i]);
-    }
-    if (s_win_tick >= ROBOT_MOTOR_SPEED_CALC_MS)
-    {
-        /* rpm = (Δcount ÷ PPR) ÷ T(秒) × 60，T = Bsp_GetUs 实测窗长：
-         * 拍数≠毫秒（任务节拍漂移），按真实时间折算调度抖动不进读数 */
-        uint32_t now_us = Bsp_GetUs();
-        float t_s = (float)(now_us - s_win_start_us) * 1e-6f;
-        s_win_start_us = now_us;
-        if (t_s > 0.001f)                   /* 防异常窗：1ms 下限保护 */
+        bool dropped = false;
+        uint8_t n = Encoder_TakeNew(s_enc_ch[i], s_enc_buf,
+                                    (uint8_t)ENC_RING_DEPTH, &dropped);
+        if (dropped)
         {
-            float k = 60.0f / ((float)ROBOT_ENC_PPR * t_s);
-            for (uint8_t i = 0u; i < MOTOR_CH_COUNT; i++)
-            {
-                float rpm = (float)s_win_acc[i] * k * (float)ROBOT_MOTOR_SIGN;
-
-                /* 事件黑匣子：宽触发（读数较上窗掉超三成+10rpm，或涨超三成
-                 * +10rpm）——渐变型深谷每窗跳变小，陡阈值会漏。acc 定性：
-                 * ≈0=编码器真无脉冲；正常而折算错=软件；负大=反向脉冲 */
-                float prev = s_speed_rpm[i];
-                bool dip = (rpm < prev * 0.7f - 10.0f);
-                bool jump = (rpm > prev * 1.3f + 10.0f);
-                if (prev > 20.0f && (dip || jump) &&
-                    (now_us - s_evt_last_us) > 300000u)
-                {
-                    long d10 = (long)(s_duty_dbg[i] * 100.0f);
-                    Log_Printf("[EVT] CH%u acc=%ld T=%lums rpm=%ld<- %ld "
-                               "duty=%ld%% Iout=%ld/1000 ref=%ld\r\n",
-                               (unsigned)(i + 1u), (long)s_win_acc[i],
-                               (unsigned long)(t_s * 1000.0f),
-                               (long)rpm, (long)prev, d10,
-                               (long)(s_speed_pid[i].Iout * 1000.0f),
-                               (long)s_ref_rpm[i]);
-                    s_evt_last_us = now_us;
-                }
-                s_speed_rpm[i] = rpm;
-                s_win_acc[i] = 0;
-            }
+            /* 掉队 = 样本流断档（64 格 + 1kHz 消费下不该发生）：按原参重装
+             * 估计器和滴喂历史，宁可几拍读 0，也不拿跨断档的窗编假转速 */
+            s_mt_drops[i]++;
+            SpeedEst_Init(&s_speed_est[i], &s_se_cfg);
+            SpeedEstDrip_Init(&s_se_drip[i]);
         }
-        s_win_tick = 0u;
+        for (uint8_t j = 0u; j < n; j++)
+        {
+            s_se_buf[j].cnt = s_enc_buf[j].cnt;
+            s_se_buf[j].us = s_enc_buf[j].us;
+        }
+        float rpm = SpeedEstDrip_Update(&s_se_drip[i], &s_speed_est[i],
+                                        s_se_buf, n, now_us) *
+                    (float)ROBOT_MOTOR_SIGN;
+
+        /* 病灶上报：stale 在"产出健康"时触发就是病，把 offending 数字
+         * 打出来（300ms 限频与 EVT 共用节拍；age 打 µs 原值——0xFFFFFFFF
+         * 这类回绕值除以 1000 会伪装成普通毫秒数） */
+        if (s_speed_est[i].dbg_stale_cnt != s_dbg_stale_seen[i] &&
+            (now_us - s_evt_last_us) > 300000u)
+        {
+            s_dbg_stale_seen[i] = s_speed_est[i].dbg_stale_cnt;
+            Log_Printf("[STALE] CH%u age_us=%lu n=%u cnt=%lu\r\n",
+                       (unsigned)(i + 1u),
+                       (unsigned long)s_speed_est[i].dbg_stale_age_us,
+                       (unsigned)s_speed_est[i].dbg_stale_n,
+                       (unsigned long)s_speed_est[i].dbg_stale_cnt);
+            s_evt_last_us = now_us;
+        }
+
+        /* 事件黑匣子：宽触发（读数较上一拍掉超三成+10rpm，或涨超三成
+         * +10rpm）——M/T 后"上一拍"只隔 1ms，够得着这条线的只有真毛刺/
+         * 真故障的陡沿；缓变深谷不在此列（要抓缓变看 STAT/VOFA 曲线），
+         * 300ms 限频不变 */
+        float prev = s_speed_rpm[i];
+        bool dip = (rpm < prev * 0.7f - 10.0f);
+        bool jump = (rpm > prev * 1.3f + 10.0f);
+        if (prev > 20.0f && (dip || jump) &&
+            (now_us - s_evt_last_us) > 300000u)
+        {
+            long d10 = (long)(s_duty_dbg[i] * 100.0f);
+            Log_Printf("[EVT] CH%u rpm=%ld<- %ld "
+                       "duty=%ld%% Iout=%ld/1000 ref=%ld\r\n",
+                       (unsigned)(i + 1u),
+                       (long)rpm, (long)prev, d10,
+                       (long)(s_speed_pid[i].Iout * 1000.0f),
+                       (long)s_ref_rpm[i]);
+            s_evt_last_us = now_us;
+        }
+        s_speed_rpm[i] = rpm;
     }
 
     /* ② ③ ④ 每路：PID → 堵转处置 → 出 duty */

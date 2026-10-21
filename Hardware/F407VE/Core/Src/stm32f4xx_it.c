@@ -188,7 +188,7 @@ void EXTI15_10_IRQHandler(void)
   HAL_GPIO_EXTI_IRQHandler(KEY1_Pin);
   HAL_GPIO_EXTI_IRQHandler(KEY2_Pin);
   /* USER CODE BEGIN EXTI15_10_IRQn 1 */
-
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_15);  /* PA15：CH2 编码器 A 相边沿采样（mt-speed-pending），与按键/无线同向量 */
   /* USER CODE END EXTI15_10_IRQn 1 */
 }
 
@@ -235,5 +235,19 @@ void DMA2_Stream0_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
+
+/**
+  * @brief This function handles EXTI line[9:5] interrupts.
+  * @note  CubeMX 未配置这些线的 EXTI（编码器引脚必须保持 TIM 复用态，EXTI
+  *        由 Bsp/bsp_encoder.c 手配），向量在此手动补挂。线 6=PC6（CH4 A 相）、
+  *        线 7=PA7（CH3 B 相，PA6/PC6 同线冲突改抓 B 相）、线 8=PA8（CH1 A 相）；
+  *        派发统一走 bsp_gpio.c 的注册表（HAL_GPIO_EXTI_Callback 强符号覆盖）。
+  */
+void EXTI9_5_IRQHandler(void)
+{
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_6);
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_7);
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_8);
+}
 
 /* USER CODE END 1 */

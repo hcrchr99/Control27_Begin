@@ -80,11 +80,12 @@ void Motor_Disable(void);
 void Motor_SetSpeedRpm(MotorCh_t ch, float rpm);
 
 /**
- * @brief  最近一次测速窗折算的实测转速（rpm，已折算到 duty 语义符号）
- * @note   测速窗 = ROBOT_MOTOR_SPEED_CALC_MS（默认 10ms），本接口返回窗口
- *         平均值（100Hz 刷新），不读编码器——编码器唯一读者是
- *         Motor_SpeedLoopUpdate（bsp_encoder"每通道一个读者"契约），
- *         联验读数必须走本接口，直接 Encoder_Read 会抢走测速增量
+ * @brief  最近一拍折算的实测转速（rpm，已折算到 duty 语义符号）
+ * @note   测速 = M/T 边沿吸附窗（mt-speed-pending S-C 起），1kHz 每拍刷新、
+ *         低速无量化台阶。不读编码器——采样环唯一常驻消费者是
+ *         Motor_SpeedLoopUpdate（Encoder_TakeNew 游标在 bsp 模块内），
+ *         联验读数必须走本接口；Encoder_Read 直读仍在，属旁路观察、
+ *         与闭环互不干扰
  */
 float Motor_GetSpeedRpm(MotorCh_t ch);
 
@@ -98,6 +99,13 @@ float Motor_GetDuty(MotorCh_t ch);
  * @brief  速度环 PID 的积分累计量（duty 量纲；整定观测用，看积分顶没顶限）
  */
 float Motor_GetIout(MotorCh_t ch);
+
+/**
+ * @brief  M/T 采样环掉队累计次数（板验 bisect 观测量，读数大面积归零时看它）
+ * @note   1kHz 消费 + 64 格环下正常恒为 0；持续增长 = 消费节奏被拖住或
+ *         边沿产出异常（配合 bsp_encoder.h 的 Encoder_Head 区分软硬件）
+ */
+uint32_t Motor_MtDrops(MotorCh_t ch);
 
 /**
  * @brief  运行时改速度环 PID 参数 + 前馈增益（整定台用；写全部四路，立即生效）
